@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>YouQian血压助手 - 您的健康记录专家</title>
+    <!-- Web App 属性 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- 引入高质感字体 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Font Awesome 图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js 库 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- SheetJS (Excel处理库) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    
+    <!-- 主样式表 -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 顶部导航栏 -->
+        <header class="app-header">
+            <div class="header-logo">
+                <i class="fa-solid fa-heart-pulse pulse-icon"></i>
+                <h1>YouQian血压助手</h1>
+            </div>
+            <div class="header-actions">
+                <button id="themeToggleBtn" class="icon-btn" title="切换主题">
+                    <i class="fa-solid fa-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- 核心统计看板 -->
+        <section class="stats-board">
+            <div class="board-card main-stats">
+                <div class="card-title">最近 7 次平均值</div>
+                <div class="stats-grid">
+                    <div class="stat-item text-systolic">
+                        <span class="stat-num" id="avgSystolic">--</span>
+                        <span class="stat-label">高压 (mmHg)</span>
+                    </div>
+                    <div class="stat-divider">/</div>
+                    <div class="stat-item text-diastolic">
+                        <span class="stat-num" id="avgDiastolic">--</span>
+                        <span class="stat-label">低压 (mmHg)</span>
+                    </div>
+                    <div class="stat-item text-pulse">
+                        <span class="stat-num" id="avgPulse">--</span>
+                        <span class="stat-label">脉搏 (次/分)</span>
+                    </div>
+                </div>
+                <div class="health-summary" id="healthSummary">
+                    <i class="fa-solid fa-circle-info"></i> <span id="healthSummaryText">暂无足够数据，请开始记录</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- 主内容区：通过 Tab 切换 -->
+        <main class="app-content">
+            <!-- Tab 1: 录入记录 -->
+            <section id="tab-record" class="tab-pane active">
+                <div class="glass-card">
+                    <h2 class="section-title"><i class="fa-solid fa-pen-to-square"></i> 新增血压记录</h2>
+                    <form id="bpForm" class="bp-form" autocomplete="off">
+                        <!-- 日期时间选择 -->
+                        <div class="form-group">
+                            <label for="recordTime"><i class="fa-regular fa-calendar-days"></i> 记录时间</label>
+                            <div class="time-input-wrapper">
+                                <input type="datetime-local" id="recordTime" required>
+                                <button type="button" id="setCurrentTimeBtn" class="btn-secondary" title="设置为当前时间">
+                                    <i class="fa-solid fa-clock-rotate-left"></i> 现在
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 血压与脉搏输入 -->
+                        <div class="inputs-row">
+                            <div class="form-group flex-1">
+                                <label for="systolic"><i class="fa-solid fa-gauge-high"></i> 收缩压 (高压)</label>
+                                <div class="input-unit-wrapper">
+                                    <input type="number" id="systolic" min="50" max="250" placeholder="120" required>
+                                    <span class="unit">mmHg</span>
+                                </div>
+                            </div>
+                            <div class="form-group flex-1">
+                                <label for="diastolic"><i class="fa-solid fa-gauge-simple"></i> 舒张压 (低压)</label>
+                                <div class="input-unit-wrapper">
+                                    <input type="number" id="diastolic" min="30" max="180" placeholder="80" required>
+                                    <span class="unit">mmHg</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="pulse"><i class="fa-solid fa-heartbeat"></i> 脉搏</label>
+                            <div class="input-unit-wrapper">
+                                <input type="number" id="pulse" min="30" max="220" placeholder="75" required>
+                                <span class="unit">次/分</span>
+                            </div>
+                        </div>
+
+                        <!-- 快速输入辅助按钮 (可选，帮助快速滑屏录入) -->
+                        <button type="submit" class="btn-primary" id="saveBtn">
+                            <i class="fa-solid fa-check"></i> 保存记录
+                        </button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Tab 2: 趋势分析 -->
+            <section id="tab-trends" class="tab-pane">
+                <div class="glass-card chart-card">
+                    <div class="chart-header">
+                        <h2 class="section-title"><i class="fa-solid fa-chart-line"></i> 血压趋势</h2>
+                        <div class="range-selector">
+                            <button class="range-btn active" data-range="7">7次</button>
+                            <button class="range-btn" data-range="30">30次</button>
+                            <button class="range-btn" data-range="all">全部</button>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="trendsChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Tab 3: 历史数据 -->
+            <section id="tab-history" class="tab-pane">
+                <div class="glass-card">
+                    <div class="history-header">
+                        <h2 class="section-title"><i class="fa-solid fa-list-ul"></i> 历史记录</h2>
+                        <span class="record-count" id="recordCount">共 0 条</span>
+                    </div>
+
+                    <!-- 数据管理栏 -->
+                    <div class="data-manage-bar">
+                        <button id="exportExcelBtn" class="btn-action export-btn">
+                            <i class="fa-solid fa-file-excel"></i> 导出 Excel
+                        </button>
+                        <label for="importExcelFile" class="btn-action import-btn">
+                            <i class="fa-solid fa-file-import"></i> 导入 Excel
+                            <input type="file" id="importExcelFile" accept=".xlsx, .xls, .csv" style="display: none;">
+                        </label>
+                        <button id="clearDataBtn" class="btn-action delete-btn">
+                            <i class="fa-solid fa-trash-can"></i> 清空
+                        </button>
+                    </div>
+
+                    <!-- 列表展示 -->
+                    <div class="history-list-wrapper">
+                        <div class="history-list" id="historyList">
+                            <!-- 动态生成记录 -->
+                            <div class="empty-state">
+                                <i class="fa-solid fa-notes-medical"></i>
+                                <p>暂无血压记录，请在“记录”标签中添加</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- 底部导航栏 -->
+        <nav class="app-nav">
+            <button class="nav-item active" data-tab="tab-record">
+                <i class="fa-solid fa-file-medical"></i>
+                <span>记录</span>
+            </button>
+            <button class="nav-item" data-tab="tab-trends">
+                <i class="fa-solid fa-chart-line"></i>
+                <span>趋势</span>
+            </button>
+            <button class="nav-item" data-tab="tab-history">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                <span>历史</span>
+            </button>
+        </nav>
+
+        <!-- 自定义确认弹窗 (PWA & Android 适配) -->
+        <div id="confirmModal" class="modal-backdrop">
+            <div class="modal-card glass-card">
+                <div class="modal-icon"><i class="fa-solid fa-circle-exclamation"></i></div>
+                <h3 class="modal-title">确认操作</h3>
+                <p id="modalMessage" class="modal-msg">您确定要执行此操作吗？</p>
+                <div class="modal-buttons">
+                    <button id="modalCancelBtn" class="btn-secondary">取消</button>
+                    <button id="modalConfirmBtn" class="btn-primary modal-btn-danger">确认</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 提示消息组件 -->
+        <div id="toast" class="toast-container"></div>
+    </div>
+
+    <!-- 主逻辑脚本 -->
+    <script src="app.js"></script>
+</body>
+</html>

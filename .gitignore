@@ -1,0 +1,9 @@
+# Local dependencies
+node_modules/
+
+# Temporary and build files
+.gradle/
+*_build/
+.tempmediaStorage/
+*.log
+Thumbs.db

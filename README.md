@@ -1,0 +1,50 @@
+# YouQian血压助手 V1.0 📱
+
+**YouQian血压助手** 是一款高颜值、注重隐私的本地血压记录及趋势分析工具。专为安卓手机和移动浏览器优化设计，采用现代化深色渐变与玻璃拟态 UI 风格，为您提供极佳的健康管理体验。
+
+---
+
+## ✨ 核心功能
+
+1. **血压记录录入**：支持记录高压（收缩压）、低压（舒张压）、脉搏，并智能判断血压等级（WHO 标准）。
+2. **当前时间智能格式化**：自动填充并格式化当前记录日期时间（如 `2026-06-23 21:06`）。
+3. **高颜值数据卡片与趋势分析**：
+   - 动态渲染记录卡片。
+   - 集成 **Chart.js** 绘制双 Y 轴血压/脉搏折线走势图。
+   - 支持“最近7次”、“最近30次”和“全部记录”的范围筛选。
+4. **Excel 数据无缝导入导出**：
+   - **一键导出**：将本地记录导出为标准的 `.xlsx` 表格文件（默认命名为 `YouQian血压历史记录_YYYY-MM-DD.xlsx`）。
+   - **一键导入**：支持从现有的 Excel 模板导入并合并血压数据。
+5. **本地删除与管理**：
+   - 自定义玻璃拟态确认模态弹窗（已完美修复在部分安卓 PWA 环境下原生 confirm 无法弹出的 bug）。
+6. **离线 PWA 支持**：配置有 `manifest.json` 与 Service Worker 离线缓存，可在手机上添加至主屏幕作为独立 App 运行。
+
+---
+
+## 📦 本地一键打包 APK（针对 Android）
+
+项目内置了针对 Windows 环境定制的免 Android Studio 轻量化打包脚本 `build_apk.ps1`。
+
+### 打包步骤：
+1. 双击或使用 PowerShell 运行 [build_apk.ps1](file:///d:/xueya/build_apk.ps1)。
+2. 脚本将全自动检测/安装 **OpenJDK 17**、配置 **Gradle** 和 **Android SDK**（均在本地沙箱进行，不污染全局环境）。
+3. 自动将网页代码注入 Cordova 框架并执行编译。
+4. 编译完成后，会在工作区根目录下直接生成 **[YouQian血压助手.apk](file:///d:/xueya/YouQian血压助手.apk)**，直接传输至手机安装即可！
+
+---
+
+## 🛠️ 技术栈
+
+- 结构：HTML5 / 语义化 HTML
+- 样式：Vanilla CSS / 玻璃拟态设计（Glassmorphism） / Google Fonts (Inter)
+- 逻辑：原生 JavaScript (ES6)
+- 图表库：Chart.js
+- Excel 解析：SheetJS (xlsx.mini.min.js)
+
+---
+
+## 📄 版本控制与声明
+
+* **当前版本**：V1.0
+* **开发者**：Antigravity (Pair-programming with MoMo)
+* **开源许可**：MIT License
