@@ -1,7 +1,7 @@
 {
   "name": "YouQian血压助手 - 您的健康记录专家",
   "short_name": "YouQian血压助手",
-  "version": "1.0.0",
+  "version": "1.4.0",
   "description": "简单、现代、安全的本地血压记录及趋势分析工具，支持 Excel 数据导入导出。",
   "start_url": "index.html",
   "display": "standalone",

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bp-helper-v2';
+const CACHE_NAME = 'bp-helper-v5';
 const ASSETS = [
   'index.html',
   'styles.css',

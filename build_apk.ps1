@@ -278,6 +278,19 @@ $env:ANDROID_HOME = $sdkDir
 & npx cordova platform add android@11.0.0 | Out-Null
 Write-Host "Android platform added successfully." -ForegroundColor Green
 
+# Add Cordova Plugins
+Write-Host "Adding cordova-plugin-camera..." -ForegroundColor White
+& npx cordova plugin add cordova-plugin-camera --save | Out-Null
+Write-Host "cordova-plugin-camera added successfully." -ForegroundColor Green
+
+Write-Host "Adding cordova-plugin-file..." -ForegroundColor White
+& npx cordova plugin add cordova-plugin-file --save | Out-Null
+Write-Host "cordova-plugin-file added successfully." -ForegroundColor Green
+
+Write-Host "Adding cordova-plugin-printer..." -ForegroundColor White
+& npx cordova plugin add cordova-plugin-printer --save | Out-Null
+Write-Host "cordova-plugin-printer added successfully." -ForegroundColor Green
+
 # Patch Gradle Wrapper paths again to guarantee use of domestic Huawei Cloud Mirror
 Write-Host "Double-patching Gradle Wrapper distribution URL in platform project..." -ForegroundColor White
 $pathsToPatch = @(
@@ -295,6 +308,39 @@ foreach ($wrapperPropPath in $pathsToPatch) {
     }
 }
 
+# Patch all .gradle files in Android platform project to use Aliyun Maven mirror for build speed and SSL bypass
+Write-Host "Recursively patching all .gradle files in platform project to use Aliyun Maven Mirror..." -ForegroundColor White
+Get-ChildItem -Path "$cordovaProj\platforms\android" -Filter *.gradle -Recurse | ForEach-Object {
+    $file = $_.FullName
+    $content = Get-Content -Path $file -Raw
+    if ($content -match 'google\(\)|mavenCentral\(\)') {
+        $newContent = $content -replace 'google\(\)', 'maven { url "https://maven.aliyun.com/repository/google" }'
+        $newContent = $newContent -replace 'mavenCentral\(\)', 'maven { url "https://maven.aliyun.com/repository/public" }'
+        $newContent | Out-File -FilePath $file -Encoding ascii
+        Write-Host "Patched: $file" -ForegroundColor Green
+    }
+}
+
+# Patch all .java files in Android platform project to use AndroidX instead of legacy Support libraries
+Write-Host "Recursively patching all .java files in platform project to use AndroidX..." -ForegroundColor White
+Get-ChildItem -Path "$cordovaProj\platforms\android" -Filter *.java -Recurse | ForEach-Object {
+    $file = $_.FullName
+    $content = Get-Content -Path $file -Raw
+    $changed = $false
+    if ($content -match 'android\.support\.annotation') {
+        $content = $content -replace 'android\.support\.annotation', 'androidx.annotation'
+        $changed = $true
+    }
+    if ($content -match 'android\.support\.v4\.print') {
+        $content = $content -replace 'android\.support\.v4\.print', 'androidx.print'
+        $changed = $true
+    }
+    if ($changed) {
+        $content | Out-File -FilePath $file -Encoding ascii
+        Write-Host "Patched AndroidX for: $file" -ForegroundColor Green
+    }
+}
+
 # --------------------------------------------------
 # Step 6: Build APK Package
 # --------------------------------------------------
@@ -304,10 +350,13 @@ Write-Host "`n[6/6] Compiling APK package..." -ForegroundColor Yellow
 & npx cordova build android --device
 
 $apkPath = $buildDir + "\YouQianBPTracker\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
-$targetApkName = $sourceDir + "\YouQian血压助手.apk"
+$appName = "$([char]0x8840)$([char]0x538b)$([char]0x52a9)$([char]0x624b)"
+$timestamp = Get-Date -Format "yyyyMMdd_HHmm"
+$targetApkName = $sourceDir + "\YouQian" + $appName + "_V1.4_" + $timestamp + ".apk"
 
 if (Test-Path $apkPath) {
-    Copy-Item -Path $apkPath -Destination $targetApkName -Force
+    # 用 cmd copy 替代 Copy-Item，能完美兼容中文字符路径
+    cmd.exe /c "copy /Y `"$apkPath`" `"$targetApkName`"" | Out-Null
     Write-Host "`n==========================================" -ForegroundColor Green
     Write-Host " APK built successfully!" -ForegroundColor Green
     Write-Host " Location: $targetApkName" -ForegroundColor Green
