@@ -266,6 +266,8 @@ $configXml = Get-Content -Path "config.xml"
 $newConfig = $configXml | ForEach-Object {
     if ($_ -match "</widget>") {
         '    <icon src="www/app_icon.png" />' + "`n" + $_
+    } elseif ($_ -match 'version="1.0.0"') {
+        $_ -replace 'version="1.0.0"', 'version="1.5"'
     } else {
         $_
     }
@@ -352,7 +354,7 @@ Write-Host "`n[6/6] Compiling APK package..." -ForegroundColor Yellow
 $apkPath = $buildDir + "\YouQianBPTracker\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
 $appName = "$([char]0x8840)$([char]0x538b)$([char]0x52a9)$([char]0x624b)"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-$targetApkName = $sourceDir + "\YouQian" + $appName + "_V1.4_" + $timestamp + ".apk"
+$targetApkName = $sourceDir + "\YouQian" + $appName + "_V1.5_" + $timestamp + ".apk"
 
 if (Test-Path $apkPath) {
     # 用 cmd copy 替代 Copy-Item，能完美兼容中文字符路径
