@@ -9,8 +9,14 @@
 let bpData = JSON.parse(localStorage.getItem('bp_records')) || [];
 let chartInstance = null;
 let currentRange = '7'; // 默认查看最近7次趋势
-let recordMode = 'single'; // 录入模式：single | multi
 let ocrTarget = 'single';  // OCR 目标录入行：single | 1 | 2 | 3
+
+// OCR 全局 Worker 状态与常驻缓存，用于拍照极速识别
+let ocrWorker1 = null;
+let ocrWorker2 = null;
+let ocrWorkersInitializing = false;
+let ocrWorkersReady = false;
+
 
 // 血压分级标准定义
 const BP_LEVELS = {
@@ -44,6 +50,7 @@ const toastEl = document.getElementById('toast');
 const themeToggleBtn = document.getElementById('themeToggleBtn');
 const exportExcelBtn = document.getElementById('exportExcelBtn');
 const importExcelFile = document.getElementById('importExcelFile');
+const importClipboardBtn = document.getElementById('importClipboardBtn');
 const clearDataBtn = document.getElementById('clearDataBtn');
 
 // ==========================================
@@ -690,7 +697,15 @@ function importFromExcel(e) {
     const file = e.target.files[0];
     if (!file) return;
 
+    showToast('正在读取 Excel 文件...', 'info');
+
     const reader = new FileReader();
+    reader.onerror = function(evt) {
+        console.error("FileReader error:", reader.error);
+        const errMsg = reader.error ? reader.error.message : "读取失败，可能缺少系统文件访问权限";
+        showAlertModal('文件导入失败', `❌ 无法读取该文件。<br><br>原因：${errMsg}<br><br>💡 <strong>推荐解决办法</strong>：<br>为避开 Android 系统繁琐的外部存储文件访问限制，建议使用<strong>【粘贴文本导入】</strong>功能，一秒即可完美还原全部历史记录！`);
+    };
+
     reader.onload = function(evt) {
         try {
             const data = new Uint8Array(evt.target.result);
@@ -755,17 +770,177 @@ function importFromExcel(e) {
                 updateUI();
                 showToast(`成功导入 ${importCount} 条记录！${skipCount > 0 ? `已自动排重 ${skipCount} 条。` : ''}`, 'success');
             } else {
-                showToast('导入失败，请检查 Excel 文件格式！', 'error');
+                showAlertModal('导入未完成', '未在 Excel 中找到符合格式要求的测量记录，请检查表格表头是否为“记录时间”、“高压 (收缩压) mmHg”、“低压 (舒张压) mmHg”和“脉搏 (次/分钟)”。');
             }
         } catch (err) {
             console.error(err);
             showToast('解析 Excel 失败，文件格式有误。', 'error');
         }
-        // 重置 input，允许重新选择相同文件
+        // 重置 input，允许重新选择相同 file
         importExcelFile.value = '';
     };
 
     reader.readAsArrayBuffer(file);
+}
+
+/**
+ * 💡 从剪贴板/粘贴文本导入血压记录 (强容错免权限终极方案)
+ */
+function importFromClipboard() {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.zIndex = '9999';
+
+    const card = document.createElement('div');
+    card.className = 'modal-card glass-card';
+    card.style.maxWidth = '90%';
+    card.style.width = '350px';
+    card.style.padding = '20px';
+    card.style.borderRadius = '16px';
+    card.style.display = 'flex';
+    card.style.flexDirection = 'column';
+    card.style.transform = 'scale(0.9)';
+    card.style.opacity = '0';
+    card.style.transition = 'all 0.2s ease';
+
+    const title = document.createElement('h3');
+    title.className = 'modal-title';
+    title.innerHTML = '<i class="fa-solid fa-clipboard-list" style="color: var(--primary); margin-right: 6px;"></i> 粘贴文本导入记录';
+    title.style.marginBottom = '10px';
+    title.style.fontSize = '16px';
+
+    const desc = document.createElement('p');
+    desc.className = 'modal-msg';
+    desc.innerHTML = '请将您之前从本软件导出并复制的<strong>历史明细文本</strong>（或微信中收到的文本）直接粘贴到下方输入框中：';
+    desc.style.fontSize = '12px';
+    desc.style.color = 'var(--text-secondary)';
+    desc.style.marginBottom = '12px';
+    desc.style.lineHeight = '1.5';
+
+    const textarea = document.createElement('textarea');
+    textarea.placeholder = "在此粘贴已导出的历史明细文本...\n例如：\n2026-07-01 22:07     |  155 |  104 |   74 | 中重度高血压\n2026-07-01 08:10     |  166 |  110 |   75 | 中重度高血压";
+    textarea.style.width = '100%';
+    textarea.style.height = '140px';
+    textarea.style.padding = '10px';
+    textarea.style.border = '1px solid var(--glass-border)';
+    textarea.style.borderRadius = '8px';
+    textarea.style.background = 'rgba(255,255,255,0.03)';
+    textarea.style.color = 'var(--text-main)';
+    textarea.style.fontSize = '12px';
+    textarea.style.fontFamily = 'monospace';
+    textarea.style.resize = 'none';
+    textarea.style.marginBottom = '16px';
+    textarea.style.outline = 'none';
+
+    const btnContainer = document.createElement('div');
+    btnContainer.style.display = 'flex';
+    btnContainer.style.gap = '10px';
+    btnContainer.style.width = '100%';
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn-secondary';
+    cancelBtn.innerText = '取消';
+    cancelBtn.style.flex = '1';
+    cancelBtn.style.height = '40px';
+    cancelBtn.style.borderRadius = '10px';
+
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn-primary';
+    okBtn.innerText = '立即导入';
+    okBtn.style.flex = '1';
+    okBtn.style.height = '40px';
+    okBtn.style.borderRadius = '10px';
+    okBtn.style.marginTop = '0';
+
+    const dismissModal = () => {
+        backdrop.classList.remove('show');
+        card.style.transform = 'scale(0.9)';
+        card.style.opacity = '0';
+        setTimeout(() => backdrop.remove(), 200);
+    };
+
+    cancelBtn.addEventListener('click', dismissModal);
+
+    okBtn.addEventListener('click', () => {
+        const text = textarea.value.trim();
+        if (!text) {
+            showToast('粘贴内容不能为空！', 'error');
+            return;
+        }
+
+        const lines = text.split('\n');
+        let importCount = 0;
+        let skipCount = 0;
+
+        // 💡 强健正则：匹配标准日期时间 YYYY-MM-DD HH:mm 或 YYYY/MM/DD HH:mm
+        const dateRegex = /(\d{4}[-/]\d{2}[-/]\d{2}\s\d{2}:\d{2})/;
+
+        lines.forEach(line => {
+            const dateMatch = line.match(dateRegex);
+            if (!dateMatch) return;
+
+            const timeStr = dateMatch[1];
+            // 从当前行中抠出时间，剩余部分提取前 3 个纯数字 (SYS, DIA, PULSE)
+            const remainingText = line.replace(timeStr, '');
+            const nums = remainingText.match(/\d+/g);
+
+            if (nums && nums.length >= 3) {
+                const sys = parseInt(nums[0]);
+                const dia = parseInt(nums[1]);
+                const pulse = parseInt(nums[2]);
+
+                // 临床数值合法性范围保护
+                if (sys >= 50 && sys <= 250 && dia >= 30 && dia <= 180 && pulse >= 30 && pulse <= 220) {
+                    const formattedTime = timeStr.replace(/\//g, '-'); // 归一化为短横线格式
+
+                    // 排重过滤
+                    const isDuplicate = bpData.some(item => item.time === formattedTime);
+                    if (isDuplicate) {
+                        skipCount++;
+                        return;
+                    }
+
+                    const levelObj = evaluateBP(sys, dia);
+                    bpData.push({
+                        id: 'record_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                        time: formattedTime,
+                        systolic: sys,
+                        diastolic: dia,
+                        pulse: pulse,
+                        level: levelObj.label,
+                        levelClass: levelObj.class
+                    });
+                    importCount++;
+                }
+            }
+        });
+
+        if (importCount > 0) {
+            bpData.sort((a, b) => parseDateTimeStr(b.time) - parseDateTimeStr(a.time));
+            localStorage.setItem('bp_records', JSON.stringify(bpData));
+            updateUI();
+            dismissModal();
+            showAlertModal('数据还原成功', `🎉 已成功恢复 ${importCount} 条记录！<br><br>${skipCount > 0 ? `💡 系统自动排重了 ${skipCount} 条已存在的记录。` : ''}`);
+        } else {
+            showToast('未识别到有效的血压记录，请检查格式！', 'error');
+        }
+    });
+
+    btnContainer.appendChild(cancelBtn);
+    btnContainer.appendChild(okBtn);
+    card.appendChild(title);
+    card.appendChild(desc);
+    card.appendChild(textarea);
+    card.appendChild(btnContainer);
+    backdrop.appendChild(card);
+
+    document.querySelector('.app-container').appendChild(backdrop);
+
+    setTimeout(() => {
+        backdrop.classList.add('show');
+        card.style.transform = 'scale(1)';
+        card.style.opacity = '1';
+    }, 20);
 }
 
 // ==========================================
@@ -957,7 +1132,7 @@ function removeExtraInputs(startNum) {
     }
 }
 
-function preprocessImage(canvas) {
+function preprocessImage(canvas, t = 10) {
     const ctx = canvas.getContext('2d');
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
@@ -985,10 +1160,9 @@ function preprocessImage(canvas) {
         }
     }
 
-    // s 相当于窗口大小（设为图像宽度的 1/8），t 相当于灵敏度（设为比局部均值低 10% 则判定为黑字）
+    // s 相当于窗口大小（设为图像宽度的 1/8），t 相当于灵敏度
     const S = Math.round(w / 8);
     const halfS = Math.round(S / 2);
-    const t = 10;
 
     for (let i = 0; i < w; i++) {
         for (let j = 0; j < h; j++) {
@@ -1043,10 +1217,10 @@ function parseBPValues(nums) {
                 const m = nums[j];
                 if (m >= 50 && m <= 115 && m < systolic && diastolic === null) {
                     diastolic = m;
-                    // 寻找脉搏（符合 45 - 120 范围）
+                    // 寻找脉搏（符合 40 - 160 范围）
                     for (let k = j + 1; k < nums.length; k++) {
                         const p = nums[k];
-                        if (p >= 45 && p <= 120) {
+                        if (p >= 40 && p <= 160) {
                             pulse = p;
                             break;
                         }
@@ -1062,7 +1236,7 @@ function parseBPValues(nums) {
     if (!systolic || !diastolic) {
         const validSys = nums.filter(n => n >= 90 && n <= 195);
         const validDia = nums.filter(n => n >= 50 && n <= 110);
-        const validPulse = nums.filter(n => n >= 45 && n <= 120);
+        const validPulse = nums.filter(n => n >= 40 && n <= 160);
 
         if (validSys.length > 0 && validDia.length > 0) {
             systolic = validSys[0];
@@ -1277,7 +1451,7 @@ function dilateBlack(canvas) {
 /**
  * 根据百分比高度切片并擦除其余部分的物理分轨
  */
-function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct = 1) {
+function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct = 1, envelope = null) {
     const sliceCanvas = document.createElement('canvas');
     sliceCanvas.width = srcCanvas.width;
     sliceCanvas.height = srcCanvas.height;
@@ -1289,10 +1463,20 @@ function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct =
     const w = imgData.width;
     const h = imgData.height;
 
-    const startY = Math.round(h * yStartPct);
-    const endY = Math.round(h * yEndPct);
-    const startX = Math.round(w * xStartPct);
-    const endX = Math.round(w * xEndPct);
+    let startY, endY, startX, endX;
+    if (envelope) {
+        const boxW = envelope.maxX - envelope.minX + 1;
+        const boxH = envelope.maxY - envelope.minY + 1;
+        startY = Math.round(envelope.minY + boxH * yStartPct);
+        endY = Math.round(envelope.minY + boxH * yEndPct);
+        startX = Math.round(envelope.minX + boxW * xStartPct);
+        endX = Math.round(envelope.minX + boxW * xEndPct);
+    } else {
+        startY = Math.round(h * yStartPct);
+        endY = Math.round(h * yEndPct);
+        startX = Math.round(w * xStartPct);
+        endX = Math.round(w * xEndPct);
+    }
 
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
@@ -1309,6 +1493,56 @@ function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct =
 }
 
 /**
+ * 提前在后台静默初始化并常驻两个 Tesseract Worker 实例，支持并发多线程识别，免去每次拍照重新初始化的卡顿
+ */
+async function initOCRWorkers(onProgress = null) {
+    if (ocrWorkersReady) {
+        return true;
+    }
+    if (ocrWorkersInitializing) {
+        // 如果正在初始化，则等待其完成
+        return new Promise((resolve) => {
+            const check = setInterval(() => {
+                if (ocrWorkersReady) {
+                    clearInterval(check);
+                    resolve(true);
+                }
+            }, 100);
+        });
+    }
+    ocrWorkersInitializing = true;
+    console.log("开始在后台并行预加载双 AI 识别引擎...");
+    
+    try {
+        if (onProgress) onProgress('正在启动双通道 AI 识别引擎 (1/2)...', 15);
+        const w1 = await Tesseract.createWorker('eng');
+        await w1.setParameters({
+            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtT',
+            tessedit_pageseg_mode: '7' // 只使用高精度的单行识别模式
+        });
+        ocrWorker1 = w1;
+        console.log("AI 识别引擎通道 1 初始化完毕。");
+
+        if (onProgress) onProgress('正在启动双通道 AI 识别引擎 (2/2)...', 25);
+        const w2 = await Tesseract.createWorker('eng');
+        await w2.setParameters({
+            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtT',
+            tessedit_pageseg_mode: '7'
+        });
+        ocrWorker2 = w2;
+        console.log("AI 识别引擎通道 2 初始化完毕。");
+
+        ocrWorkersReady = true;
+        console.log("所有 AI 识别引擎已全部预加载并常驻就绪！");
+        return true;
+    } catch (err) {
+        console.error("静默初始化识别引擎异常:", err);
+        ocrWorkersInitializing = false;
+        return false;
+    }
+}
+
+/**
  * 通用的 AI OCR 识别与填充流程（黄金局部裁剪与三路互补流）
  */
 async function performOCRProcess(canvas) {
@@ -1320,26 +1554,43 @@ async function performOCRProcess(canvas) {
     loadingMessage.innerText = '正在载入并优化图像分辨率...';
     loadingModal.classList.add('show');
 
-    let worker = null;
-
     try {
+        // 检查并等待后台 AI 识别引擎预加载就绪
+        if (!ocrWorkersReady) {
+            loadingMessage.innerText = '正在启动 AI 识别引擎，首次加载约需几秒...';
+            progressBar.style.width = '20%';
+            const loaded = await initOCRWorkers((msg, progress) => {
+                loadingMessage.innerText = msg;
+                progressBar.style.width = `${progress}%`;
+            });
+            if (!loaded) {
+                throw new Error("AI 识别引擎初始化失败，请重试或手动输入。");
+            }
+        }
+
         const w = canvas.width;
         const h = canvas.height;
 
         // 1. 裁剪两路定位 Canvas
-        // Road 1 窄裁剪 (X:50%, Y:36%, W:31%, H:47%)
-        const cropX1 = Math.round(w * 0.50);
+        // Road 1 窄裁剪 (调整为 X:47%, Y:36%, W:34%, H:47%，向左拓宽 3% 避免截断首位百数“1”)
+        const cropX1 = Math.round(w * 0.47);
         const cropY1 = Math.round(h * 0.36);
-        const cropW1 = Math.round(w * 0.31);
+        const cropW1 = Math.round(w * 0.34);
         const cropH1 = Math.round(h * 0.47);
 
-        // Road 2 & 3 中宽裁剪 (X:46%, Y:34%, W:38%, H:50%)
-        const cropX2 = Math.round(w * 0.46);
+        // Road 2 & 3 中宽裁剪 (优化后 X:43%, Y:34%, W:41%, H:50% 防止百位数字1被切断并保证低压识别)
+        const cropX2 = Math.round(w * 0.43);
         const cropY2 = Math.round(h * 0.34);
-        const cropW2 = Math.round(w * 0.38);
+        const cropW2 = Math.round(w * 0.41);
         const cropH2 = Math.round(h * 0.50);
 
-        if (cropW1 <= 0 || cropH1 <= 0 || cropW2 <= 0 || cropH2 <= 0) {
+        // Road 4 专属脉搏定位裁剪 (X:51%, Y:58%, W:19%, H:13% 精准合围脉搏防边缘黑边粘连)
+        const cropX_pulse = Math.round(w * 0.51);
+        const cropY_pulse = Math.round(h * 0.58);
+        const cropW_pulse = Math.round(w * 0.19);
+        const cropH_pulse = Math.round(h * 0.13);
+
+        if (cropW1 <= 0 || cropH1 <= 0 || cropW2 <= 0 || cropH2 <= 0 || cropW_pulse <= 0 || cropH_pulse <= 0) {
             throw new Error(`图像缩放尺寸异常: ${w}x${h}`);
         }
 
@@ -1357,47 +1608,109 @@ async function performOCRProcess(canvas) {
 
         const canvasRoad3 = cloneCanvas(canvasRoad2);
 
-        progressBar.style.width = '20%';
-        loadingMessage.innerText = '正在初始化 AI 识别引擎...';
-
-        // 初始化单 Worker，常驻重用
-        worker = await Tesseract.createWorker('eng');
-        await worker.setParameters({
-            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtT',
-            tessedit_pageseg_mode: '7' // 只使用高精度的单行识别模式
-        });
+        // 创建 Road 4 专属脉搏画布
+        const canvasPulseDedicated = document.createElement('canvas');
+        canvasPulseDedicated.width = cropW_pulse;
+        canvasPulseDedicated.height = cropH_pulse;
+        canvasPulseDedicated.getContext('2d').drawImage(canvas, cropX_pulse, cropY_pulse, cropW_pulse, cropH_pulse, 0, 0, cropW_pulse, cropH_pulse);
 
         progressBar.style.width = '30%';
         loadingMessage.innerText = '正在进行多路物理切分与对比度调优...';
 
-        // Road 1 预处理：自适应二值化 + 边缘去噪 + 膨胀
-        preprocessImage(canvasRoad1); // 自适应 Bradley 10 二值化
+        // 💡 强涂绝对底部 15 像素，抹去可能存在的大黑杠与外壳杂质，阻断 BFS 向上抹除脉搏
+        const eraseAbsoluteBottom = (cv) => {
+            const ctx = cv.getContext('2d');
+            const eh = cv.height;
+            const ew = cv.width;
+            const eraseY = eh - 15;
+            if (eraseY > 0) {
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, eraseY, ew, eh - eraseY);
+            }
+        };
+
+        // Road 1 预处理：自适应二值化 + 擦除绝对底边 + 边缘去噪 + 膨胀
+        preprocessImage(canvasRoad1, 10); 
+        eraseAbsoluteBottom(canvasRoad1);
         clearBordersLeftRight(canvasRoad1);
         dilateBlack(canvasRoad1);
 
-        // Road 2 预处理：对比度拉伸 + 自适应二值化 + 边缘去噪 + 膨胀
+        // Road 2 预处理：对比度拉伸 + 自适应二值化 + 擦除绝对底边 + 边缘去噪 + 膨胀
         preprocessImageGrayContrast(canvasRoad2);
-        preprocessImage(canvasRoad2);
+        preprocessImage(canvasRoad2, 10);
+        eraseAbsoluteBottom(canvasRoad2);
         clearBordersLeftRight(canvasRoad2);
         dilateBlack(canvasRoad2);
 
-        // Road 3 预处理：对比度拉伸灰度图
+        // Road 3 预处理：对比度拉伸灰度图 + 擦除绝对底边
         preprocessImageGrayContrast(canvasRoad3);
+        eraseAbsoluteBottom(canvasRoad3);
 
-        // 收集三路各自的分轨切片 (物理切片增加三轨低压以应对拍照垂直偏移)
-        const makeSlices = (srcCanvas) => {
+        // Road 4 专属脉搏预处理：对比度拉伸 + 自适应二值化 (免去清边)
+        preprocessImageGrayContrast(canvasPulseDedicated);
+        preprocessImage(canvasPulseDedicated, 10);
+
+        // 收集三路各自的分轨切片 (自适应行高行距，精准隔离跨行字)
+        const getCanvasEnvelope = (srcCanvas) => {
+            const ctx = srcCanvas.getContext('2d');
+            const w = srcCanvas.width;
+            const h = srcCanvas.height;
+            const imgData = ctx.getImageData(0, 0, w, h);
+            const data = imgData.data;
+
+            let minX = w, maxX = 0, minY = h, maxY = 0;
+            let hasBlack = false;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const idx = (y * w + x) * 4;
+                    if (data[idx] === 0) { // 黑色像素
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                        hasBlack = true;
+                    }
+                }
+            }
+
+            if (hasBlack) {
+                return {
+                    minX: Math.max(minX - 3, 0),
+                    maxX: Math.min(maxX + 3, w - 1),
+                    minY: Math.max(minY - 3, 0),
+                    maxY: Math.min(maxY + 3, h - 1)
+                };
+            }
+            return null;
+        };
+
+        const envelope1 = getCanvasEnvelope(canvasRoad1);
+        const envelope2 = getCanvasEnvelope(canvasRoad2);
+        const envelope3 = envelope2; // Road 3 (对比度拉伸灰度图) 共享 Road 2 的定位
+
+        const makeSlices = (srcCanvas, envelope) => {
+            if (envelope) {
+                return {
+                    sys: makeCanvasSlice(srcCanvas, 0.0, 0.27, 0, 1, envelope),
+                    diaWide: makeCanvasSlice(srcCanvas, 0.28, 0.60, 0, 1, envelope),
+                    diaMid: makeCanvasSlice(srcCanvas, 0.30, 0.59, 0, 1, envelope),
+                    diaNarrow: makeCanvasSlice(srcCanvas, 0.32, 0.58, 0, 1, envelope),
+                    pulse: makeCanvasSlice(srcCanvas, 0.57, 1.0, 0.0, 1.0, envelope)
+                };
+            }
             return {
                 sys: makeCanvasSlice(srcCanvas, 0.0, 0.38),
                 diaWide: makeCanvasSlice(srcCanvas, 0.31, 0.69),
                 diaMid: makeCanvasSlice(srcCanvas, 0.35, 0.69),
                 diaNarrow: makeCanvasSlice(srcCanvas, 0.38, 0.68),
-                pulse: makeCanvasSlice(srcCanvas, 0.63, 1.0, 0.45, 1.0)
+                pulse: makeCanvasSlice(srcCanvas, 0.58, 1.0, 0.45, 1.0)
             };
         };
 
-        const slices1 = makeSlices(canvasRoad1);
-        const slices2 = makeSlices(canvasRoad2);
-        const slices3 = makeSlices(canvasRoad3);
+        const slices1 = makeSlices(canvasRoad1, envelope1);
+        const slices2 = makeSlices(canvasRoad2, envelope2);
+        const slices3 = makeSlices(canvasRoad3, envelope3);
 
         const sysCandidates = [];
         const diaCandidates = [];
@@ -1406,8 +1719,20 @@ async function performOCRProcess(canvas) {
         const addCandidate = (val, source, type) => {
             if (!val) return;
             const mapped = mapConfusedCharacters(val);
-            const num = parseInt(mapped.replace(/[^0-9]/g, ''));
+            let num = parseInt(mapped.replace(/[^0-9]/g, ''));
             if (!isNaN(num)) {
+                // 💡 首位百数“1”智能补偿容错算法：
+                // 1. 若高压漏读首位“1”显示为两位数（如 62、82），且补上 100 后在合理高压区间 [90, 195] 内，自动还原百位 1
+                if (type === 'sys' && num >= 10 && num < 90 && (num + 100) >= 90 && (num + 100) <= 195) {
+                    console.log(`[SYS Auto-Compensate] Mapped ${num} -> ${num + 100} (from ${source})`);
+                    num += 100;
+                }
+                // 2. 若低压漏读首位“1”显示为两位数（如 10、20），且补上 100 后在合理低压区间 [90, 110] 内，自动还原百位 1
+                if (type === 'dia' && num >= 10 && num < 50 && (num + 100) >= 90 && (num + 100) <= 110) {
+                    console.log(`[DIA Auto-Compensate] Mapped ${num} -> ${num + 100} (from ${source})`);
+                    num += 100;
+                }
+
                 const item = { num, source, raw: val };
                 if (type === 'sys') sysCandidates.push(item);
                 if (type === 'dia') diaCandidates.push(item);
@@ -1439,11 +1764,11 @@ async function performOCRProcess(canvas) {
         const solveForRoad = (roadPrefixes) => {
             const filteredSys = sysCandidates.filter(c => roadPrefixes.some(p => c.source.startsWith(p)));
             const filteredDia = diaCandidates.filter(c => roadPrefixes.some(p => c.source.startsWith(p)));
-            const filteredPulse = pulseCandidates.filter(c => roadPrefixes.some(p => c.source.startsWith(p)));
+            const filteredPulse = pulseCandidates.filter(c => roadPrefixes.some(p => c.source.startsWith(p) || (p === 'Road1' && c.source === 'Dedicated_PULSE')));
 
             const sys = getBestValue(filteredSys, 90, 195);
             const dia = getBestValue(filteredDia, 50, 110);
-            const pulse = getBestValue(filteredPulse, 45, 120);
+            const pulse = getBestValue(filteredPulse, 40, 160);
 
             if (sys && dia) {
                 return { systolic: sys, diastolic: dia, pulse: pulse };
@@ -1451,7 +1776,7 @@ async function performOCRProcess(canvas) {
             return null;
         };
 
-        // 2. 级联短路式 OCR 识别
+        // 2. 级联短路式并发 OCR 识别
         const roads = [
             { slices: slices1, name: 'Road1' },
             { slices: slices2, name: 'Road2' },
@@ -1460,41 +1785,76 @@ async function performOCRProcess(canvas) {
 
         let solved = false;
         let finalBP = null;
+        let tempSys = null;
+        let tempDia = null;
 
         for (let r = 0; r < roads.length; r++) {
             const road = roads[r];
             
-            // 依次串行识别当前路切片 (高压、低压三轨、脉搏)
-            const resSys = await worker.recognize(road.slices.sys);
-            addCandidate(resSys.data.text.trim(), `${road.name}_SYS`, 'sys');
-
-            const resDiaWide = await worker.recognize(road.slices.diaWide);
-            addCandidate(resDiaWide.data.text.trim(), `${road.name}_DIA_Wide`, 'dia');
-
-            const resDiaMid = await worker.recognize(road.slices.diaMid);
-            addCandidate(resDiaMid.data.text.trim(), `${road.name}_DIA_Mid`, 'dia');
-
-            const resDiaNarrow = await worker.recognize(road.slices.diaNarrow);
-            addCandidate(resDiaNarrow.data.text.trim(), `${road.name}_DIA_Narrow`, 'dia');
-
-            const resPulse = await worker.recognize(road.slices.pulse);
-            addCandidate(resPulse.data.text.trim(), `${road.name}_PULSE`, 'pulse');
-
-            const currentProg = Math.round(30 + ((r + 1) / roads.length) * 60);
+            const currentProg = Math.round(30 + (r / roads.length) * 60);
             progressBar.style.width = `${currentProg}%`;
-            loadingMessage.innerText = `AI 液晶读取中 (${r + 1}/${roads.length})...`;
+            loadingMessage.innerText = `AI 液晶并发读取中 (${r + 1}/${roads.length})...`;
+
+            // 使用常驻的双 ocrWorker 进行物理切片识别。
+            // 为了防止单个 Worker 实例并发接收 recognize 调用发生 "Worker busy" 冲突，
+            // 我们让 Worker 1 负责 sys 和 pulse 的串行识别，Worker 2 负责三个低压轨的串行识别。
+            // 两条线程通过 Promise.all 并发运行，保障高性能与绝对的通信稳定性！
+            await Promise.all([
+                // 线程 1：Worker 1 串行链
+                (async () => {
+                    const resSys = await ocrWorker1.recognize(road.slices.sys);
+                    addCandidate(resSys.data.text.trim(), `${road.name}_SYS`, 'sys');
+
+                    const resPulse = await ocrWorker1.recognize(road.slices.pulse);
+                    addCandidate(resPulse.data.text.trim(), `${road.name}_PULSE`, 'pulse');
+
+                    // 💡 新增：若当前为 Road1 识别，且专属脉搏画布存在，顺带让 Worker 1 识别脉搏专属图，提高表决权重
+                    if (road.name === 'Road1' && typeof canvasPulseDedicated !== 'undefined') {
+                        const resDedicatedPulse = await ocrWorker1.recognize(canvasPulseDedicated);
+                        addCandidate(resDedicatedPulse.data.text.trim(), `Dedicated_PULSE`, 'pulse');
+                    }
+                })(),
+                // 线程 2：Worker 2 串行链
+                (async () => {
+                    const resDiaMid = await ocrWorker2.recognize(road.slices.diaMid);
+                    addCandidate(resDiaMid.data.text.trim(), `${road.name}_DIA_Mid`, 'dia');
+
+                    const resDiaNarrow = await ocrWorker2.recognize(road.slices.diaNarrow);
+                    addCandidate(resDiaNarrow.data.text.trim(), `${road.name}_DIA_Narrow`, 'dia');
+
+                    const resDiaWide = await ocrWorker2.recognize(road.slices.diaWide);
+                    addCandidate(resDiaWide.data.text.trim(), `${road.name}_DIA_Wide`, 'dia');
+                })()
+            ]);
 
             // 实时短路评估验证
             const curSys = getBestValue(sysCandidates.filter(c => c.source.startsWith(road.name)), 90, 195);
             const curDia = getBestValue(diaCandidates.filter(c => c.source.startsWith(road.name)), 50, 110);
-            const curPulse = getBestValue(pulseCandidates.filter(c => c.source.startsWith(road.name)), 45, 120);
+            const curPulse = getBestValue(pulseCandidates.filter(c => c.source.startsWith(road.name) || (road.name === 'Road1' && c.source === 'Dedicated_PULSE')), 40, 160);
 
             if (curSys && curDia) {
-                finalBP = { systolic: curSys, diastolic: curDia, pulse: curPulse };
-                solved = true;
-                console.log(`OCR Match: Solved by ${road.name} short-circuit!`, finalBP);
-                break; // 成功后立即短路中断，不执行后续 Road 识别
+                if (curPulse) {
+                    // 三项俱全，完美匹配，直接短路退出
+                    finalBP = { systolic: curSys, diastolic: curDia, pulse: curPulse };
+                    solved = true;
+                    console.log(`OCR Match: Perfect solved by ${road.name} short-circuit!`, finalBP);
+                    break;
+                } else {
+                    // 仅有高低压，暂时记录，继续后面的 Road 寻求识别出脉搏
+                    if (!tempSys || !tempDia) {
+                        tempSys = curSys;
+                        tempDia = curDia;
+                    }
+                }
             }
+        }
+
+        // 如果未 solved，但曾记录过高压和低压，说明仅少脉搏，可用全局最好的脉搏兜底
+        if (!solved && tempSys && tempDia) {
+            const bestPulse = getBestValue(pulseCandidates, 40, 160);
+            finalBP = { systolic: tempSys, diastolic: tempDia, pulse: bestPulse };
+            solved = true;
+            console.log("OCR Match: Solved by temp BP + best pulse!", finalBP);
         }
 
         progressBar.style.width = '95%';
@@ -1517,7 +1877,7 @@ async function performOCRProcess(canvas) {
             if (!finalBP) {
                 const sys = getBestValue(sysCandidates, 90, 195);
                 const dia = getBestValue(diaCandidates, 50, 110);
-                const pulse = getBestValue(pulseCandidates, 45, 120);
+                const pulse = getBestValue(pulseCandidates, 40, 160);
                 if (sys && dia) {
                     finalBP = { systolic: sys, diastolic: dia, pulse: pulse };
                     console.log("OCR Match: Solved by Fallback getBestValue!", finalBP);
@@ -1551,9 +1911,7 @@ async function performOCRProcess(canvas) {
         const errMsg = ocrErr.message || ocrErr;
         showToast('OCR 识别失败: ' + errMsg, 'error');
     } finally {
-        if (worker) {
-            await worker.terminate();
-        }
+        // 去除 worker.terminate() 销毁逻辑，确保常驻重用
         loadingModal.classList.remove('show');
     }
 }
@@ -1587,9 +1945,7 @@ function requestImageForOCR(source) {
                 sourceType: sourceType,
                 encodingType: navigator.camera.EncodingType.JPEG,
                 mediaType: navigator.camera.MediaType.PICTURE,
-                correctOrientation: true,
-                targetWidth: 1000,
-                targetHeight: 1000
+                correctOrientation: true
             }
         );
     } else {
@@ -2001,6 +2357,7 @@ function init() {
     // 8. 导入/导出/清空事件
     exportExcelBtn.addEventListener('click', exportToExcel);
     importExcelFile.addEventListener('change', importFromExcel);
+    importClipboardBtn.addEventListener('click', importFromClipboard);
     clearDataBtn.addEventListener('click', async () => {
         const confirmed = await showConfirmModal('警告：此操作将清空所有血压记录，且无法撤销！\n您确定要清空吗？');
         if (confirmed) {
@@ -2024,6 +2381,11 @@ function init() {
     // 10. 报告导出按钮
     document.getElementById('exportReportPdfBtn').addEventListener('click', exportReportAsPdf);
     document.getElementById('exportReportImgBtn').addEventListener('click', exportReportAsImage);
+
+    // 11. 异步启动 AI 识别引擎的后台预加载，不阻塞主线程
+    setTimeout(() => {
+        initOCRWorkers().catch(err => console.warn("后台预加载 OCR 异常:", err));
+    }, 500);
 }
 
 // ==========================================

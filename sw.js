@@ -1,52 +1,29 @@
-const CACHE_NAME = 'bp-helper-v5';
-const ASSETS = [
-  'index.html',
-  'styles.css',
-  'app.js',
-  'app_icon.png',
-  'manifest.json',
-  'https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap',
-  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css',
-  'https://cdn.jsdelivr.net/npm/chart.js',
-  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js'
-];
-
-// 安装 Service Worker，缓存所有必要资源
+// sw.js 自毁注销脚本，用于彻底清理旧版本缓存并强制刷新客户端
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS);
-    }).then(() => {
-      return self.skipWaiting();
-    })
-  );
+  self.skipWaiting();
 });
 
-// 激活并清除旧缓存
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
+        keys.map((key) => caches.delete(key))
       );
     }).then(() => {
       return self.clients.claim();
+    }).then(() => {
+      return self.clients.matchAll();
+    }).then((clients) => {
+      clients.forEach((client) => {
+        // 强制通知客户端进行重新加载，以载入网络上的最新资源
+        client.postMessage({ action: 'clearCacheReload' });
+      });
     })
   );
 });
 
-// 拦截请求并采用缓存优先策略
+// 不拦截任何 fetch 请求，允许所有网络请求直接穿透到服务器
 self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    caches.match(e.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        return cachedResponse;
-      }
-      return fetch(e.request);
-    })
-  );
+  // 直接放行，不从缓存读取
+  return;
 });

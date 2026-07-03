@@ -383,6 +383,14 @@
                         <i class="fa-solid fa-chevron-right settings-arrow"></i>
                         <input type="file" id="importExcelFile" accept=".xlsx, .xls, .csv" style="display: none;">
                     </label>
+                    <button id="importClipboardBtn" class="settings-item-btn">
+                        <span class="settings-item-icon import-icon" style="background: rgba(99,102,241,0.12); color: var(--primary);"><i class="fa-solid fa-clipboard-list"></i></span>
+                        <div class="settings-item-info">
+                            <div class="settings-item-label">粘贴文本导入</div>
+                            <div class="settings-item-desc">粘贴已导出的历史明细文本快速还原</div>
+                        </div>
+                        <i class="fa-solid fa-chevron-right settings-arrow"></i>
+                    </button>
                     <button id="clearDataBtn" class="settings-item-btn danger-item">
                         <span class="settings-item-icon danger-icon"><i class="fa-solid fa-trash-can"></i></span>
                         <div class="settings-item-info">
@@ -400,7 +408,7 @@
                         <span class="settings-item-icon" style="background: rgba(99,102,241,0.12); color: var(--primary);"><i class="fa-solid fa-heart-pulse"></i></span>
                         <div class="settings-item-info">
                             <div class="settings-item-label">YouQian 血压助手</div>
-                            <div class="settings-item-desc">Version 1.5 · 本地数据 · 隐私保护</div>
+                            <div class="settings-item-desc">Version 1.6 · 本地数据 · 隐私保护</div>
                         </div>
                     </div>
                 </div>
@@ -510,6 +518,6 @@
     <!-- Cordova 核心支持 (打包时由Cordova自动生成并注入，Web端加载会报404可忽略) -->
     <script src="cordova.js"></script>
     <!-- 主逻辑脚本 -->
-    <script src="app.js?v=18"></script>
+    <script src="app.js?v=24"></script>
 </body>
 </html>
