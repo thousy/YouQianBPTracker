@@ -1584,23 +1584,23 @@ async function performOCRProcess(canvas) {
         const h = canvas.height;
 
         // 1. 裁剪两路定位 Canvas
-        // Road 1 窄裁剪 (调整为 X:47%, Y:36%, W:34%, H:47%，向左拓宽 3% 避免截断首位百数“1”)
-        const cropX1 = Math.round(w * 0.47);
-        const cropY1 = Math.round(h * 0.36);
-        const cropW1 = Math.round(w * 0.34);
-        const cropH1 = Math.round(h * 0.47);
+        // Road 1 自适应高包容性大裁剪 (X:20%, Y:20%, W:65%, H:65%)，保证液晶屏不削顶、不遗漏数字
+        const cropX1 = Math.round(w * 0.20);
+        const cropY1 = Math.round(h * 0.20);
+        const cropW1 = Math.round(w * 0.65);
+        const cropH1 = Math.round(h * 0.65);
 
-        // Road 2 & 3 中宽裁剪 (优化后 X:43%, Y:34%, W:41%, H:50% 防止百位数字1被切断并保证低压识别)
-        const cropX2 = Math.round(w * 0.43);
-        const cropY2 = Math.round(h * 0.34);
-        const cropW2 = Math.round(w * 0.41);
-        const cropH2 = Math.round(h * 0.50);
+        // Road 2 & 3 宽范围拉伸裁剪 (X:15%, Y:18%, W:70%, H:68%)，充分保留弱光对比度区域数字
+        const cropX2 = Math.round(w * 0.15);
+        const cropY2 = Math.round(h * 0.18);
+        const cropW2 = Math.round(w * 0.70);
+        const cropH2 = Math.round(h * 0.68);
 
-        // Road 4 专属脉搏定位裁剪 (X:51%, Y:58%, W:19%, H:13% 精准合围脉搏防边缘黑边粘连)
-        const cropX_pulse = Math.round(w * 0.51);
-        const cropY_pulse = Math.round(h * 0.58);
-        const cropW_pulse = Math.round(w * 0.19);
-        const cropH_pulse = Math.round(h * 0.13);
+        // Road 4 专属脉搏定位大范围裁剪 (X:35%, Y:50%, W:40%, H:35%)，兼容各种型号血压计的心率定位
+        const cropX_pulse = Math.round(w * 0.35);
+        const cropY_pulse = Math.round(h * 0.50);
+        const cropW_pulse = Math.round(w * 0.40);
+        const cropH_pulse = Math.round(h * 0.35);
 
         if (cropW1 <= 0 || cropH1 <= 0 || cropW2 <= 0 || cropH2 <= 0 || cropW_pulse <= 0 || cropH_pulse <= 0) {
             throw new Error(`图像缩放尺寸异常: ${w}x${h}`);
