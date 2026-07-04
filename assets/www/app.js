@@ -10,6 +10,7 @@ let bpData = JSON.parse(localStorage.getItem('bp_records')) || [];
 let chartInstance = null;
 let currentRange = '7'; // 默认查看最近7次趋势
 let ocrTarget = 'single';  // OCR 目标录入行：single | 1 | 2 | 3
+let recordMode = 'single'; // 录入模式状态：single | multi
 
 // OCR 全局 Worker 状态与常驻缓存，用于拍照极速识别
 let ocrWorker1 = null;
@@ -172,6 +173,7 @@ function saveRecord(sys, dia, pulse, dateTimeStr, note = '') {
     bpData.sort((a, b) => parseDateTimeStr(b.time) - parseDateTimeStr(a.time));
 
     localStorage.setItem('bp_records', JSON.stringify(bpData));
+    console.log("bp_records_export:", localStorage.getItem('bp_records'));
     
     updateUI();
     showToast('血压记录已成功保存！');
@@ -227,6 +229,7 @@ function deleteRecord(id, cardElement) {
     }, 300);
 }
 
+
 /**
  * 重新计算平均值及生成健康状态建议
  */
@@ -264,6 +267,8 @@ function updateStatsAndDashboard() {
 
 /**
  * 渲染历史记录列表
+ * - 门诊多次测量统一显示为"平均测量"badge
+ * - noteBadge 与 status-badge 分行显示，不挤在一起
  */
 function renderHistoryList() {
     recordCountEl.innerText = `共 ${bpData.length} 条`;
@@ -272,7 +277,7 @@ function renderHistoryList() {
         historyList.innerHTML = `
             <div class="empty-state">
                 <i class="fa-solid fa-notes-medical"></i>
-                <p>暂无血压记录，请在“记录”标签中添加</p>
+                <p>暂无血压记录，请在"记录"标签中添加</p>
             </div>
         `;
         return;
@@ -280,7 +285,12 @@ function renderHistoryList() {
 
     let html = '';
     bpData.forEach(item => {
-        const noteBadge = item.note ? `<span class="record-note-badge"><i class="fa-solid fa-calculator"></i> ${item.note}</span>` : '';
+        // 判断测量类型：note 含"门诊"字样或'avg'标记 → 平均测量，否则单次测量
+        const isAvg = item.note && (item.note.includes('门诊') || item.note === 'avg');
+        const noteBadge = isAvg
+            ? `<span class="record-note-badge badge-avg"><i class="fa-solid fa-calculator"></i> 平均测量</span>`
+            : `<span class="record-note-badge badge-single"><i class="fa-solid fa-user"></i> 单次测量</span>`;
+
         html += `
             <div class="record-card" data-id="${item.id}">
                 <div class="record-info">
@@ -298,8 +308,10 @@ function renderHistoryList() {
                     </div>
                 </div>
                 <div class="record-actions">
-                    ${noteBadge}
-                    <span class="record-status-badge ${item.levelClass}">${item.level}</span>
+                    <div class="record-actions-top">
+                        ${noteBadge}
+                        <span class="record-status-badge ${item.levelClass}">${item.level}</span>
+                    </div>
                     <button class="delete-record-btn" onclick="handleDeleteRecord('${item.id}', this)" title="删除">
                         <i class="fa-regular fa-trash-can"></i>
                     </button>
@@ -608,9 +620,9 @@ function exportToExcel() {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "血压记录");
 
-        // 获取当前时间戳作为文件名后缀
-        const todayStr = formatDateTime(new Date()).split(' ')[0];
-        const fileName = `YouQian血压历史记录_${todayStr}.xlsx`;
+        // 获取当前时间戳作为文件名后缀，包含具体的小时 and 分钟以防同天覆盖
+        const timestampStr = formatDateTime(new Date()).replace(' ', '_').replace(':', '');
+        const fileName = `YouQian血压历史记录_${timestampStr}.xlsx`;
 
         if (window.cordova) {
             // Cordova 环境下生成二进制并本地写入
@@ -2447,14 +2459,14 @@ function updateReport() {
             </span>
         </div>
     ` + filtered.map(item => `
-        <div class="report-record-row" style="display: flex; align-items: center; justify-content: space-between;">
-            <span class="report-record-time" style="width: 36%; flex-shrink: 0; text-align: left; align-self: center;">${item.time}</span>
-            <span class="report-record-bp" style="width: 32%; flex-shrink: 0; text-align: center; line-height: 1.4; align-self: center;">
+        <div class="report-record-row" style="display: -webkit-box; display: -webkit-flex; display: flex; -webkit-box-align: center; -webkit-align-items: center; align-items: center; -webkit-justify-content: space-between; justify-content: space-between;">
+            <span class="report-record-time" style="width: 36%; flex-shrink: 0; text-align: left;">${item.time}</span>
+            <span class="report-record-bp" style="width: 32%; flex-shrink: 0; text-align: center; line-height: 1.4;">
                 <span class="sys">${item.systolic}</span>/<span class="dia">${item.diastolic}</span> <span style="font-size: 9px; color: var(--text-muted);">mmHg</span>
                 <div style="font-size:10px; color: var(--color-pulse); margin-top: 2px;"><span style="color: #ef4444;">♥</span> ${item.pulse} <span style="font-size: 9px; color: var(--text-muted);">次/分</span></div>
             </span>
-            <span class="report-record-badge-wrapper" style="width: 32%; flex-shrink: 0; text-align: center; align-self: center;">
-                <span class="report-record-badge ${item.levelClass}" style="width: auto; flex-shrink: 0; padding: 0 5px; align-self: center; display: inline-flex; justify-content: center; align-items: center;">${item.level}</span>
+            <span class="report-record-badge-wrapper" style="width: 32%; flex-shrink: 0; text-align: center;">
+                <span class="report-record-badge ${item.levelClass}">${item.level}</span>
             </span>
         </div>
     `).join('');
@@ -2662,8 +2674,8 @@ async function captureReportCanvas(isA4Mode = true) {
 async function exportReportAsPdf() {
     if (bpData.length === 0) { showToast('暂无记录可生成报告！', 'error'); return; }
 
-    const todayStr = formatDateTime(new Date()).split(' ')[0];
-    const pdfName = `YouQian血压报告_${currentReportDays}天_${todayStr}.pdf`;
+    const timestampStr = formatDateTime(new Date()).replace(' ', '_').replace(':', '');
+    const pdfName = `YouQian血压报告_${currentReportDays}天_${timestampStr}.pdf`;
 
     // 手机 App (Cordova) 环境下：为了避免由于缺少系统打印服务引发的报错，并实现直接保存至“Download”目录的需求，
     // 我们在本地使用 html2canvas 超高采样渲染，并通过 jsPDF 直接导出，静默保存至系统 Download 目录下。
@@ -2870,9 +2882,9 @@ function showExportImageOptionsModal() {
  * 触发具体的图片导出流程
  */
 async function triggerImageExport(isA4Mode) {
-    const todayStr = formatDateTime(new Date()).split(' ')[0];
+    const timestampStr = formatDateTime(new Date()).replace(' ', '_').replace(':', '');
     const modeName = isA4Mode ? 'A4规格' : '屏幕自适应';
-    const imgName = `YouQian血压报告_${currentReportDays}天_${modeName}_${todayStr}.png`;
+    const imgName = `YouQian血压报告_${currentReportDays}天_${modeName}_${timestampStr}.png`;
 
     showToast('正在生成图片，请稍候...', 'info');
     try {

@@ -542,10 +542,8 @@ input:focus {
 }
 
 .history-list-wrapper {
-    max-height: 420px;
-    overflow-y: auto;
+    overflow-y: visible;
     padding-right: 4px;
-    /* 自定义滚动条 */
 }
 
 .history-list-wrapper::-webkit-scrollbar {
@@ -652,11 +650,13 @@ input:focus {
 
 .record-status-badge {
     align-self: flex-start;
-    padding: 2px 8px;
+    padding: 3px 8px;
     border-radius: 20px;
     font-size: 10px;
     font-weight: 600;
     letter-spacing: 0.3px;
+    white-space: nowrap;   /* 禁止状态标签换行 */
+    flex-shrink: 0;
 }
 
 /* 状态标签样式映射 */
@@ -666,10 +666,42 @@ input:focus {
 .badge-stage1 { background: rgba(249, 115, 22, 0.15); color: var(--level-stage1); border: 1px solid rgba(249, 115, 22, 0.25); }
 .badge-stage2 { background: rgba(239, 104, 104, 0.15); color: var(--level-stage2); border: 1px solid rgba(239, 68, 68, 0.25); }
 
+/* 测量类型标签：单次 / 平均测量 */
+.record-note-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.record-note-badge.badge-single {
+    background: rgba(99, 102, 241, 0.10);
+    color: var(--primary);
+    border: 1px solid rgba(99, 102, 241, 0.20);
+}
+.record-note-badge.badge-avg {
+    background: rgba(6, 182, 212, 0.10);
+    color: var(--secondary);
+    border: 1px solid rgba(6, 182, 212, 0.22);
+}
+
 .record-actions {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+}
+
+/* 右侧操作区上半部分（状态行）：两个badge分行显示，不挤在一起 */
+.record-actions-top {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
 }
 
 .delete-record-btn {
@@ -1088,19 +1120,7 @@ input:focus {
     font-size: 15px;
 }
 
-.record-note-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 2px 6px;
-    background: rgba(99, 102, 241, 0.08);
-    color: var(--primary);
-    border: 1px solid rgba(99, 102, 241, 0.15);
-    border-radius: 10px;
-    font-size: 9px;
-    font-weight: 500;
-    margin-right: 6px;
-}
+
 
 .ocr-spinner {
     font-size: 40px;
@@ -1442,17 +1462,16 @@ input:focus {
 }
 
 .report-record-badge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-block;
+    vertical-align: middle;
     font-size: 10px;
-    padding: 0 5px;
-    height: 20px;
+    line-height: 1;          /* 消除字体特有的行高间距偏差 */
+    padding: 4px 8px 6px 8px;   /* 微调上边距4px，下边距6px，物理向上平移文字以中和安卓字体的偏下Bug */
     border-radius: 10px;
     font-weight: 600;
     text-align: center;
     min-width: 60px;
-    line-height: 1;
+    box-sizing: border-box;
     white-space: nowrap;
 }
 
