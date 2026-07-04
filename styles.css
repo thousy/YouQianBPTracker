@@ -1465,14 +1465,24 @@ input:focus {
     display: inline-block;
     vertical-align: middle;
     font-size: 10px;
-    line-height: 1;          /* 消除字体特有的行高间距偏差 */
-    padding: 4px 8px 6px 8px;   /* 微调上边距4px，下边距6px，物理向上平移文字以中和安卓字体的偏下Bug */
+    line-height: 1.2;
+    padding: 3px 8px 5px 8px;
     border-radius: 10px;
     font-weight: 600;
     text-align: center;
     min-width: 60px;
+    max-width: 48px;         /* 窄屏下限制最大宽度，迫使中重度高血压在手机预览里换行 */
     box-sizing: border-box;
-    white-space: nowrap;
+    white-space: normal;
+    word-break: break-all;
+}
+
+/* 导出图片/PDF时，强制恢复为单行及最完美居中的导出专用样式，不破坏先前导出的效果 */
+.exporting .report-record-badge {
+    max-width: none !important;
+    white-space: nowrap !important;
+    padding: 4px 8px 6px 8px !important;   /* 完美中和安卓字体的非对称偏置padding */
+    line-height: 1 !important;             /* 紧贴字高1 */
 }
 
 .report-export-actions {

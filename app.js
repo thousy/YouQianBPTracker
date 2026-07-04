@@ -2615,6 +2615,7 @@ function renderReportChart(data) {
 
 async function captureReportCanvas(isA4Mode = true) {
     const el = document.getElementById('reportContent');
+    el.classList.add('exporting');
     
     // 备份原有样式以在截图后恢复
     const originalWidth = el.style.width;
@@ -2645,6 +2646,8 @@ async function captureReportCanvas(isA4Mode = true) {
 
     const bgColor = document.body.getAttribute('data-theme') === 'light' ? '#f3f4f6' : '#111827';
     const raw = await html2canvas(el, { backgroundColor: bgColor, scale: 3, useCORS: true });
+
+    el.classList.remove('exporting');
 
     // 恢复原有的响应式屏幕排版样式
     el.style.width = originalWidth;
