@@ -88,3 +88,25 @@ MoMo 提交了 2 张欧姆龙 J710 实拍图片及对应错误回填截图：
 * 前端引入超轻量断码屏目标检测模型（ONNXRuntime-Web，模型仅 1~2MB，WASM 本地离线执行）：
   - 模型直接定位 `[SYS_BOX]`, `[DIA_BOX]`, `[PULSE_BOX]`，完全忽略外壳与汉字干扰；
   - 即使在极其极端的倾斜、污渍或强烈反光下，也能直接切出纯净数字区域，彻底终结规则算法的打补丁恶性循环。
+
+---
+
+## 5. V1.7 版本发布与 Android 正式包构建成果
+
+### 5.1 版本信息与产物清单
+* **正式版本号**：`V1.7`（内部版本：`1.7.0`，Cordova widget: `1.7.0`，前端设置展示：`Version 1.7 · 本地数据 · 隐私保护`）
+* **打包脚本优化**：优化 [build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1)，采用动态 `$PSScriptRoot`，彻底解决路径依赖。
+* **正式编译安装包**：
+  - 产物路径：[`YouQian血压助手_V1.7_20261006_1431.apk`](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7_20261006_1431.apk)
+  - 产物大小：**41.5 MB**（包含全量离线 WASM 与 Tesseract 离线识别核心）
+  - 编译环境：Cordova Android 10.1.2 + Gradle 7.4.2
+
+### 5.2 数据安全与隐私防泄漏审核
+* **严格隔离**：`.gitignore` 完备覆盖 `*.png`, `*.jpg`, `tests/`, `ceshi_file/` 等本地测试快照和历史目录；
+* **仅白名单追踪**：仅放行根目录唯一正式包 `!/YouQian*V1.7*.apk`，移出并清理历史旧版本调试包；
+* **暂存区 0 泄漏**：白名单审核确认，推送到远程 GitHub 的只有纯净源码、模型支持库、离线依赖与文档。
+
+### 5.3 远程仓库发布状态
+* **提交 Commit**：`4cf2238` (`release: v1.7.0 - add ONNX/YOLO infrastructure, fix J710 OCR adaptive recognition, package V1.7 release APK`)
+* **发布标签**：`v1.7`
+* **推送结果**：已成功推送至远端主分支 `origin/main` 以及所有 Release Tags。

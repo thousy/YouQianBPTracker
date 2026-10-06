@@ -42,6 +42,12 @@
   - [x] 同步更新 assets/www/ 生产代码并递增版本号至 v=43 <!-- id: 54 -->
   - [x] 纯净生产代码真实全量回归验证，确保 7 大关键用例 100% 满分通过（零回归退化） <!-- id: 55 -->
   - [x] 登记 problem_tracking_log.md、编写 walkthrough.md 并完成 Git 安全脱敏核查 <!-- id: 56 -->
+- [x] V1.7 版本发布与 Android 正式包构建 <!-- id: 57 -->
+  - [x] 更新项目版本号至 V1.7.0（UI设置面板、package.json、build_apk.ps1） <!-- id: 58 -->
+  - [x] 成功执行 build_apk.ps1 编译生成 YouQian血压助手_V1.7_20261006_1431.apk <!-- id: 59 -->
+  - [x] 配置 .gitignore 严密拦截测试快照，放行 V1.7 正式安装包发布 <!-- id: 60 -->
+  - [x] 遵循《数据安全与隐私防泄漏规范》，经全量白名单审核后提交代码并打上 v1.7 标签 <!-- id: 61 -->
+  - [x] 成功执行 git push origin main --tags 推送至 GitHub 远程仓库 <!-- id: 62 -->
 
 
 
