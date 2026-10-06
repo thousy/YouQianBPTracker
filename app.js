@@ -3404,7 +3404,18 @@ async function performOCRProcess(canvas) {
  * @param {string} source 'camera' | 'album'
  */
 function requestImageForOCR(source) {
-    const isCordova = typeof window.cordova !== 'undefined' && typeof navigator.camera !== 'undefined';
+    const hasCordova = typeof window.cordova !== 'undefined';
+    
+    // 如果处于 Cordova 容器但插件仍在异步挂载中，等待 deviceready 完成后自动调用
+    if (hasCordova && typeof navigator.camera === 'undefined') {
+        showToast('正在启动相机组件...', 'info');
+        document.addEventListener('deviceready', () => {
+            requestImageForOCR(source);
+        }, { once: true });
+        return;
+    }
+
+    const isCordova = hasCordova && typeof navigator.camera !== 'undefined';
     
     if (isCordova) {
         // Cordova 环境下直接调起原生摄像头/相册
@@ -3435,12 +3446,16 @@ function requestImageForOCR(source) {
         // 浏览器/PWA环境下，触发对应的隐藏 input 控件
         if (source === 'camera') {
             const input = document.getElementById('ocrCameraInput');
-            input.value = ''; // 强制清空
-            input.click();
+            if (input) {
+                input.value = ''; // 强制清空
+                input.click();
+            }
         } else {
             const input = document.getElementById('ocrFileInput');
-            input.value = ''; // 强制清空
-            input.click();
+            if (input) {
+                input.value = ''; // 强制清空
+                input.click();
+            }
         }
     }
 }

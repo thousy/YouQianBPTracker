@@ -54,6 +54,14 @@
   - [x] 修改 build_apk.ps1 显式注入 android-versionCode="30700" <!-- id: 66 -->
   - [x] 运行 build_apk.ps1 重新编译生成覆盖更新正式 APK <!-- id: 67 -->
   - [x] 严格脱敏审核并提交推送至 GitHub 远端 <!-- id: 68 -->
+- [x] 修复点击立即拍照调取相册而非相机的故障 <!-- id: 69 -->
+  - [x] 根因剖析：定位 index.html 缺失 cordova.js 导致 APK 降级为 input 文件选择器的根因 <!-- id: 70 -->
+  - [x] 编写 implementation_plan.md 提请 MoMo 审批 <!-- id: 71 -->
+  - [x] 恢复 index.html 与 assets/www/index.html 的 cordova.js 核心脚本注入 <!-- id: 72 -->
+  - [x] 优化 app.js 与 assets/www/app.js 的 requestImageForOCR 相机调取与 deviceready 状态兜底 <!-- id: 73 -->
+  - [x] 优化 build_apk.ps1 显式补充 CAMERA 权限并递增版本号至 V1.7.1 (versionCode 30701) <!-- id: 74 -->
+  - [x] 执行 build_apk.ps1 重新构建正式安装包并验证 <!-- id: 75 -->
+  - [x] 登记 problem_tracking_log.md、编写 walkthrough.md 并完成 Git 安全脱敏核查 <!-- id: 76 -->
 
 
 

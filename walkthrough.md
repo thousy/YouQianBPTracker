@@ -118,3 +118,23 @@ MoMo 提交了 2 张欧姆龙 J710 实拍图片及对应错误回填截图：
    * 适配 Android WebView 底层 MIME 过滤机制，全兼容常见 Excel 标准 MIME 与通用文档类型；
    * 手机系统可正常调起系统文件管理器与微信/下载文档目录，前端同步增设严格的文件扩展名防呆拦截保护。
 
+---
+
+## 6. V1.7.1 点击“立即拍照识别”调取原生相机修复与发布
+
+### 6.1 核心根因与精准修复
+* **根因定位**：此前在引入 ONNX / YOLOv8 模型时，[index.html](file:///d:/AI_Project/xueya/index.html) 底部脚本区域的 `<script src="cordova.js"></script>` 被误替换移除。导致在打包的 APK 环境中，Cordova 原生桥接层与 `navigator.camera` 插件未生效，`requestImageForOCR` 错误降级触发了 `<input type="file">`，系统 WebView 默认弹出了相册/文件选择器。
+* **精准修复**：
+  1. 在 [index.html](file:///d:/AI_Project/xueya/index.html) 与 [assets/www/index.html](file:///d:/AI_Project/xueya/assets/www/index.html) 中恢复置顶 `<script src="cordova.js"></script>` 引入；
+  2. 在 [app.js](file:///d:/AI_Project/xueya/app.js) 与 [assets/www/app.js](file:///d:/AI_Project/xueya/assets/www/app.js) 的 `requestImageForOCR` 中增强生命周期容错：若处于 Cordova 容器（`window.cordova` 存在）但插件在挂载中，自动监听 `deviceready` 事件完成并自动补发，彻底杜绝假降级；
+  3. 在 [build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1) 中显式注入 `CAMERA` 权限，递增 `versionCode` 为 `30701`，版本号为 `1.7.1`。
+
+### 6.2 安装包产物与验证结果
+* **最新正式安装包**：[`YouQian血压助手_V1.7.1_20261006_2255.apk`](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7.1_20261006_2255.apk)
+* **产物大小**：**41.57 MB**
+* **验证走查项**：
+  - [x] 包内 `assets/www/index.html` 确认包含 `<script src="cordova.js"></script>`；
+  - [x] 原生 `AndroidManifest.xml` 确认已声明 `android.permission.CAMERA`、`READ_EXTERNAL_STORAGE` 等权限；
+  - [x] `versionCode="30701"` 保证真机顺利无缝覆盖升级并完整保留已有血压记录。
+
+

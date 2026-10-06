@@ -622,6 +622,40 @@
 * **状态**：[x] 已完全解决并重新构建发布
 * **修复日期**：2026-10-06
 
+---
+
+## 10. 修复点击“立即拍照识别”弹出相册而非直接调取系统相机故障
+
+### 问题描述
+* MoMo 真机运行应用时反馈：在 OCR 识别弹窗中点击“立即拍照识别”，弹出的是手机系统的相册/文件选择界面，无法直接唤起相机镜头。
+
+### 根源分析
+1. **`cordova.js` 引用在早前引入 ONNX 推理模块时不慎遗漏**：
+   * 在早前引入 YOLOv8 / ONNX 离线推理模块时，[index.html](file:///d:/AI_Project/xueya/index.html) 底部脚本区域的 `<script src="cordova.js"></script>` 被误替换移除；
+   * 在 Android APK 原生 WebView 环境中，由于没有加载 `cordova.js`，Cordova 原生桥接通道与 `navigator.camera` 插件未能初始化，导致 `window.cordova` 为 `undefined`。
+2. **环境判定失效与假降级**：
+   * [app.js](file:///d:/AI_Project/xueya/app.js) 的 `requestImageForOCR` 函数因检测到 `!isCordova`，错误降级执行了模拟点击隐藏 input `<input type="file" id="ocrCameraInput">`；
+   * Android 系统底层 WebView 接收到文件选择意图后，默认打开了系统相册/文件选择器，未能拉起系统相机拍照。
+
+### 修复方案
+1. **恢复 Cordova 核心桥接脚本**：
+   * 在 [index.html](file:///d:/AI_Project/xueya/index.html) 与 [assets/www/index.html](file:///d:/AI_Project/xueya/assets/www/index.html) 底部脚本区域恢复置顶 `<script src="cordova.js"></script>`。
+2. **增强相机调用生命周期防假降级兜底**：
+   * 在 [app.js](file:///d:/AI_Project/xueya/app.js) 与 [assets/www/app.js](file:///d:/AI_Project/xueya/assets/www/app.js) 的 `requestImageForOCR` 中增加异步挂载容错：若处于 Cordova 容器（`window.cordova` 存在）但插件尚在初始化阶段，自动监听 `deviceready` 完成后自动补发调用原生相机，杜绝假降级。
+3. **强化 AndroidManifest 原生相机权限配置与版本递增**：
+   * 在 [build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1) 中显式声明 `<uses-permission android:name="android.permission.CAMERA" />` 以及相机硬件特性；
+   * 递增内部 versionCode 为 `30701`，版本号递增至 `1.7.1`，确保真机能够无缝覆盖安装升级。
+
+### 验证与产物
+* 重新执行 `build_apk.ps1` 编译构建生成全新安装包：[YouQian血压助手_V1.7.1_20261006_2255.apk](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7.1_20261006_2255.apk)（41.57 MB）；
+* 验证生成包内 `assets/www/index.html` 已正确包含 `<script src="cordova.js"></script>`；
+* 验证 `AndroidManifest.xml` 已正确声明 `android.permission.CAMERA` 与 `android.permission.READ_EXTERNAL_STORAGE`。
+
+### 状态
+* **状态**：[x] 已完全解决并重新编译交付 V1.7.1 安装包
+* **修复日期**：2026-10-06
+
+
 
 
 
