@@ -286,7 +286,7 @@ $newConfig = $configXml | ForEach-Object {
 '@
         $extraConfig + "`n" + $_
     } elseif ($_ -match '<widget') {
-        $temp = $_ -replace 'version="1.0.0"', 'version="1.7.0"'
+        $temp = $_ -replace 'version="1.0.0"', 'version="1.7.0" android-versionCode="30700"'
         $temp -replace '<widget', '<widget xmlns:android="http://schemas.android.com/apk/res/android"'
     } else {
         $_

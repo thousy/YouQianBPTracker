@@ -709,6 +709,14 @@ function importFromExcel(e) {
     const file = e.target.files[0];
     if (!file) return;
 
+    const fileName = (file.name || '').toLowerCase();
+    const ext = fileName.split('.').pop();
+    if (!['xlsx', 'xls', 'csv'].includes(ext)) {
+        showToast('请选择 .xlsx, .xls 或 .csv 格式的 Excel 表格文件', 'warning');
+        if (importExcelFile) importExcelFile.value = '';
+        return;
+    }
+
     showToast('正在读取 Excel 文件...', 'info');
 
     const reader = new FileReader();
