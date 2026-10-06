@@ -2097,7 +2097,36 @@ function decode7SegmentFromCanvas(canvas, type = 'normal') {
 
     // 💡 右侧残渣竖线清洗（如 x 贴近右边界且宽度较窄的边框残余）
     while (charBlocks.length > 2) {
-        if ((type === 'sys' || type === 'dia') && charBlocks.length <= 3) break;
+        if ((type === 'sys' || type === 'dia') && charBlocks.length <= 3) {
+            if (type === 'dia' && charBlocks.length === 3) {
+                const b0 = charBlocks[0];
+                const b1 = charBlocks[1];
+                const last = charBlocks[2];
+                const cdata0 = new Uint8Array(b0.cw * b0.ch);
+                for (let y = 0; y < b0.ch; y++) for (let x = 0; x < b0.cw; x++) cdata0[y * b0.cw + x] = bin[(b0.minY + y) * w + (b0.startX + x)];
+                const d0 = decodeSingleChar(cdata0, b0.cw, b0.ch);
+
+                const cdata1 = new Uint8Array(b1.cw * b1.ch);
+                for (let y = 0; y < b1.ch; y++) for (let x = 0; x < b1.cw; x++) cdata1[y * b1.cw + x] = bin[(b1.minY + y) * w + (b1.startX + x)];
+                const d1 = decodeSingleChar(cdata1, b1.cw, b1.ch);
+
+                const maxCw = Math.max(b0.cw, b1.cw);
+                const gap = last.startX - b1.endX;
+
+                // 医学与几何双重判定：人类合法的舒张压（低压）若为三位数仅限 100~130（百位为1或假8，且十位为0~3）。
+                // 若十位 >= 4（如87开头的871），绝不可能是三位数低压！末尾窄竖线必为边框残渣！
+                const possible3Digit = (d0 === 1 || d0 === 8) && (d1 !== null && d1 <= 3);
+
+                if (!possible3Digit && last.cw < maxCw * 0.55 && gap > 12 && (last.minY <= 5 || last.endX > w * 0.78)) {
+                    console.log(`[7Seg dia] 生理自洽精准剔除低压右侧假竖线残渣 (d0=${d0}, d1=${d1}, startX=${last.startX}, cw=${last.cw}, gap=${gap})`);
+                    charBlocks.pop();
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
         const last = charBlocks[charBlocks.length - 1];
         const prev = charBlocks[charBlocks.length - 2];
         const maxCw = Math.max(...charBlocks.slice(0, -1).map(b => b.cw));
