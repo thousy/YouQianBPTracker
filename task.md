@@ -62,6 +62,16 @@
   - [x] 优化 build_apk.ps1 显式补充 CAMERA 权限并递增版本号至 V1.7.1 (versionCode 30701) <!-- id: 74 -->
   - [x] 执行 build_apk.ps1 重新构建正式安装包并验证 <!-- id: 75 -->
   - [x] 登记 problem_tracking_log.md、编写 walkthrough.md 并完成 Git 安全脱敏核查 <!-- id: 76 -->
+- [x] 解决安卓手机端图片识别卡住数分钟无结果性能瓶颈 <!-- id: 77 -->
+  - [x] 根因定位：发现 initOCRWorkers 死锁循环与前置强制阻塞重型引擎问题 <!-- id: 78 -->
+  - [x] 编写 implementation_plan.md 提请 MoMo 审批 <!-- id: 79 -->
+  - [x] 重构 performOCRProcess：调整执行管线，优先执行 0 依赖纯 Canvas 几何拓扑极速通道 <!-- id: 80 -->
+  - [x] 彻底修复 initOCRWorkers 中 setInterval 永久死锁 Bug 并增加超时熔断保护 <!-- id: 81 -->
+  - [x] 优化 yolo_detector.js 增加模型加载安全熔断，防止 Android file 协议挂起 <!-- id: 82 -->
+  - [x] 同步更新 assets/www/ 生产文件与版本标记 <!-- id: 83 -->
+  - [x] 运行本地全量测试套件进行零回归检验 <!-- id: 84 -->
+  - [x] 执行 build_apk.ps1 重新打包构建 V1.7.2 正式安装包 <!-- id: 85 -->
+  - [x] 登记 problem_tracking_log.md、编写 walkthrough.md 并完成 Git 安全脱敏核查 <!-- id: 86 -->
 
 
 

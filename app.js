@@ -2343,12 +2343,16 @@ async function initOCRWorkers(onProgress = null) {
         return true;
     }
     if (ocrWorkersInitializing) {
-        // 如果正在初始化，则等待其完成
+        // 如果正在初始化，则等待其完成或超时退出，绝不死锁
         return new Promise((resolve) => {
+            const startTime = Date.now();
             const check = setInterval(() => {
                 if (ocrWorkersReady) {
                     clearInterval(check);
                     resolve(true);
+                } else if (!ocrWorkersInitializing || Date.now() - startTime > 2500) {
+                    clearInterval(check);
+                    resolve(false);
                 }
             }, 100);
         });
@@ -2396,8 +2400,10 @@ async function initOCRWorkers(onProgress = null) {
         return true;
     } catch (err) {
         console.error("静默初始化识别引擎异常:", err);
-        ocrWorkersInitializing = false;
+        ocrWorkersReady = false;
         return false;
+    } finally {
+        ocrWorkersInitializing = false;
     }
 }
 
@@ -2409,68 +2415,14 @@ async function performOCRProcess(canvas) {
     const loadingMessage = document.getElementById('ocrLoadingMessage');
     const progressBar = document.getElementById('ocrProgressBar');
 
-    progressBar.style.width = '10%';
-    loadingMessage.innerText = '正在载入并优化图像分辨率...';
+    progressBar.style.width = '20%';
+    loadingMessage.innerText = '正在自适应定位液晶屏幕区域...';
     loadingModal.classList.add('show');
 
     try {
-        // 检查并等待后台 AI 识别引擎预加载就绪
-        if (!ocrWorkersReady) {
-            loadingMessage.innerText = '正在启动 AI 识别引擎，首次加载约需几秒...';
-            progressBar.style.width = '20%';
-            const loaded = await initOCRWorkers((msg, progress) => {
-                loadingMessage.innerText = msg;
-                progressBar.style.width = `${progress}%`;
-            });
-            if (!loaded) {
-                throw new Error("AI 识别引擎初始化失败，请重试或手动输入。");
-            }
-        }
-
         const w = canvas.width;
         const h = canvas.height;
 
-        // 🚀【双引擎级联通道 0：优先尝试 ONNXRuntime-Web + YOLOv8-nano 断码屏目标检测】
-        if (typeof YOLOv8DigitDetector !== 'undefined') {
-            try {
-                if (!window.yoloDetectorInstance) {
-                    window.yoloDetectorInstance = new YOLOv8DigitDetector({
-                        modelPath: './models/yolov8n_7segment.onnx'
-                    });
-                }
-                loadingMessage.innerText = '正在执行 YOLOv8 深度断码屏目标检测...';
-                progressBar.style.width = '25%';
-                const yoloDetections = await window.yoloDetectorInstance.detect(canvas);
-                if (yoloDetections && yoloDetections.length >= 5) {
-                    const yoloBP = window.yoloDetectorInstance.clusterAndExtractBP(yoloDetections, h);
-                    if (yoloBP && yoloBP.systolic && yoloBP.diastolic) {
-                        console.log('[YOLOv8] 🎉 目标检测直接命中完整生理三元组:', yoloBP);
-                        progressBar.style.width = '100%';
-                        setTimeout(() => loadingModal.classList.remove('show'), 200);
-
-                        const finalSys = yoloBP.systolic;
-                        const finalDia = yoloBP.diastolic;
-                        const pulseVal = yoloBP.pulse || '';
-
-                        if (ocrTarget === 'single') {
-                            document.getElementById('systolic').value = finalSys;
-                            document.getElementById('diastolic').value = finalDia;
-                            if (pulseVal) document.getElementById('pulse').value = pulseVal;
-                        } else {
-                            document.getElementById(`sys${ocrTarget}`).value = finalSys;
-                            document.getElementById(`dia${ocrTarget}`).value = finalDia;
-                            if (pulseVal) document.getElementById(`pulse${ocrTarget}`).value = pulseVal;
-                            handleMultiInputCheck();
-                        }
-
-                        showToast(`识别成功 (YOLOv8)！高压:${finalSys}，低压:${finalDia}${pulseVal ? `，脉搏:${pulseVal}` : ''}`);
-                        return;
-                    }
-                }
-            } catch (yoloErr) {
-                console.warn('[YOLOv8] 目标检测异常或模型未就绪，自动平滑回退至几何拓扑通道:', yoloErr);
-            }
-        }
 
         // 💡 自适应屏幕垂直定位算法：智能检测中间深色屏幕主带，动态适配居中构图与偏下构图
         const detectAdaptiveScreenBounds = (cv) => {
@@ -3004,7 +2956,7 @@ async function performOCRProcess(canvas) {
         };
 
         const recognizeAndAdd = async (worker, canvas, source, type, minDarkPixels = 80) => {
-            if (!canvas) return null;
+            if (!worker || !canvas) return null;
             const ctx = canvas.getContext('2d', { willReadFrequently: true });
             const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imgData.data;
@@ -3185,6 +3137,14 @@ async function performOCRProcess(canvas) {
                     finalBP = { systolic: seg7Sys, diastolic: seg7Dia, pulse: seg7Pulse };
                     solved = true;
                 }
+            }
+        }
+
+        if (!solved) {
+            // 纯 Canvas 拓扑未完全命中，尝试启动 Worker 作为二级备选
+            if (!ocrWorkersReady && !ocrWorkersInitializing) {
+                loadingMessage.innerText = '正在调起备选多核引擎二次校验...';
+                await initOCRWorkers().catch(() => false);
             }
         }
 

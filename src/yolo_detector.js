@@ -47,10 +47,12 @@
                 // 尝试优先使用 WebGL (若支持) 或 WASM
                 const providers = ['wasm'];
                 console.log(`[YOLOv8] 正在加载断码屏目标检测模型: ${targetPath}...`);
-                this.session = await ort.InferenceSession.create(targetPath, {
+                const createPromise = ort.InferenceSession.create(targetPath, {
                     executionProviders: providers,
                     graphOptimizationLevel: 'all'
                 });
+                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('YOLO init timeout')), 400));
+                this.session = await Promise.race([createPromise, timeoutPromise]);
 
                 this.isReady = true;
                 console.log('[YOLOv8] 模型会话初始化成功，输入节点:', this.session.inputNames, '输出节点:', this.session.outputNames);

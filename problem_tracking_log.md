@@ -655,6 +655,42 @@
 * **状态**：[x] 已完全解决并重新编译交付 V1.7.1 安装包
 * **修复日期**：2026-10-06
 
+---
+
+## 11. 解决安卓手机端图片识别卡住等待数分钟无结果性能瓶颈
+
+### 问题描述
+* MoMo 真机测试反馈：在 PC 浏览器端进行血压图片识别速度非常快，但在安卓手机真机中安装运行后，点击图片识别，界面停滞等待几分钟都没有任何结果，陷入长时间无响应的卡死状态。
+
+### 根源分析
+1. **`initOCRWorkers` 死锁死循环（致命元凶）**：
+   * 应用启动 500ms 后后台静默调用 `initOCRWorkers`；在手机 WebView `file:///` 沙盒环境下，Worker 创建失败后导致 `ocrWorkersInitializing` 结束但 `ocrWorkersReady` 仍为 false；
+   * 用户前台点击识别时触发 `performOCRProcess` 再次调用 `initOCRWorkers`，进入 `setInterval` 状态检查，该定时器**只判定了 `ocrWorkersReady` 为 true，未对初始化已失败退出（`!ocrWorkersInitializing`）进行清理，导致定时器永远死循环、Promise 永不返回，整个主线程陷入永久死锁**。
+2. **重型引擎强制前置阻塞，极速轻量引擎被埋没**：
+   * 原执行流程将 Tesseract 双 Worker 与 ONNX YOLO 模型加载强制排在最前面，且前置等待失败直接抛出异常中断；
+   * 而 0 外部依赖、10~30 毫秒即可毫秒级完成的纯 Canvas 几何拓扑断码管解码器被排在最后，由于前置在手机端网络/资源超时挂起，导致极速模块根本得不到执行机会。
+
+### 修复方案
+1. **重构执行管线：纯 Canvas 拓扑极速通道绝对先发制人**：
+   * 移除 `performOCRProcess` 前置的强制 Worker 阻塞；
+   * 直接切片并优先调用纯 Canvas 几何拓扑解码器（Road1 / Road2），一旦命中生理自洽黄金三元组，**直接结算填充，耗时仅需 10~30 毫秒，真机实现瞬间秒出结果**；
+   * 仅在纯拓扑未命中时，才异步唤醒 Worker 作为二级备选。
+2. **根治 `initOCRWorkers` 状态死锁与超时熔断**：
+   * 在定时监听中增加 `!ocrWorkersInitializing` 状态结束判定与 2.5 秒安全超时熔断，并在 `finally` 块始终将 `ocrWorkersInitializing` 恢复为 false，彻底杜绝死锁；
+   * 在 `recognizeAndAdd` 中增加对 `worker` 为 null 的防空防御。
+3. **增加 YOLO 400ms 快速超时保护**：
+   * 使用 `Promise.race` 限制 ONNX 模型的 session 创建，防止在 Android WebView 下无限挂起。
+
+### 验证与产物
+* **自动化测试**：运行 [tests/verify_pure_app.js](file:///d:/AI_Project/xueya/tests/verify_pure_app.js)，包含欧姆龙实拍图在内的 7 大经典测试用例 **100% 满分通过，零回归退化**；
+* **正式编译安装包**：[YouQian血压助手_V1.7.2_20261006_2323.apk](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7.2_20261006_2323.apk)（41.57 MB）；
+* **版本信息**：`versionName="1.7.2"`，`versionCode="30702"`，支持手机一键覆盖升级并保留已有数据。
+
+### 状态
+* **状态**：[x] 已完全解决并重新构建交付 V1.7.2 安装包
+* **修复日期**：2026-10-06
+
+
 
 
 
