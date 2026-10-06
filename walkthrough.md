@@ -94,10 +94,10 @@ MoMo 提交了 2 张欧姆龙 J710 实拍图片及对应错误回填截图：
 ## 5. V1.7 版本发布与 Android 正式包构建成果
 
 ### 5.1 版本信息与产物清单
-* **正式版本号**：`V1.7`（内部版本：`1.7.0`，Cordova widget: `1.7.0`，前端设置展示：`Version 1.7 · 本地数据 · 隐私保护`）
-* **打包脚本优化**：优化 [build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1)，采用动态 `$PSScriptRoot`，彻底解决路径依赖。
+* **正式版本号**：`V1.7`（展示版本：`1.7.0`，Android 内部构建编号：`30700`，支持无缝覆盖升级并保留本地数据）
+* **打包脚本优化**：优化 [build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1)，动态注入 `android-versionCode="30700"` 并采用动态 `$PSScriptRoot`。
 * **正式编译安装包**：
-  - 产物路径：[`YouQian血压助手_V1.7_20261006_1431.apk`](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7_20261006_1431.apk)
+  - 产物路径：[`YouQian血压助手_V1.7_20261006_1456.apk`](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7_20261006_1456.apk)
   - 产物大小：**41.5 MB**（包含全量离线 WASM 与 Tesseract 离线识别核心）
   - 编译环境：Cordova Android 10.1.2 + Gradle 7.4.2
 
@@ -107,6 +107,14 @@ MoMo 提交了 2 张欧姆龙 J710 实拍图片及对应错误回填截图：
 * **暂存区 0 泄漏**：白名单审核确认，推送到远程 GitHub 的只有纯净源码、模型支持库、离线依赖与文档。
 
 ### 5.3 远程仓库发布状态
-* **提交 Commit**：`4cf2238` (`release: v1.7.0 - add ONNX/YOLO infrastructure, fix J710 OCR adaptive recognition, package V1.7 release APK`)
-* **发布标签**：`v1.7`
+* **提交 Commit**：`da42c48` (`fix(release): bump versionCode to 30700 for seamless update & fix Excel file picker MIME compatibility on Android`)
+* **发布标签**：`v1.7` (更新至最新 Release 安装包)
 * **推送结果**：已成功推送至远端主分支 `origin/main` 以及所有 Release Tags。
+
+### 5.4 真机核心体验专项修复
+1. **彻底解决覆盖安装失败 (-25 / 降级拦截)**：
+   * 显式将 `versionCode` 提升至 `30700`，高于历史所有测试构建包，手机直接识别为最新版本，支持一键无缝覆盖安装，手机内原有血压历史数据 100% 完好保留。
+2. **彻底解决导入 Excel 只能选择图片的问题**：
+   * 适配 Android WebView 底层 MIME 过滤机制，全兼容常见 Excel 标准 MIME 与通用文档类型；
+   * 手机系统可正常调起系统文件管理器与微信/下载文档目录，前端同步增设严格的文件扩展名防呆拦截保护。
+

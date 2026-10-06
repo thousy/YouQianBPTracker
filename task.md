@@ -48,12 +48,12 @@
   - [x] 配置 .gitignore 严密拦截测试快照，放行 V1.7 正式安装包发布 <!-- id: 60 -->
   - [x] 遵循《数据安全与隐私防泄漏规范》，经全量白名单审核后提交代码并打上 v1.7 标签 <!-- id: 61 -->
   - [x] 成功执行 git push origin main --tags 推送至 GitHub 远程仓库 <!-- id: 62 -->
-- [/] 修复 Android 覆盖安装降级拦截与 Excel 导入只能选图兼容问题 <!-- id: 63 -->
-  - [ ] 修改 index.html 与 assets/www/index.html 增强 Excel input accept 兼容性 <!-- id: 64 -->
-  - [ ] 修改 app.js 与 assets/www/app.js 增加前端后缀防呆拦截校验 <!-- id: 65 -->
-  - [ ] 修改 build_apk.ps1 显式注入 android-versionCode="30700" <!-- id: 66 -->
-  - [ ] 运行 build_apk.ps1 重新编译生成覆盖更新正式 APK <!-- id: 67 -->
-  - [ ] 严格脱敏审核并提交推送至 GitHub 远端 <!-- id: 68 -->
+- [x] 修复 Android 覆盖安装降级拦截与 Excel 导入只能选图兼容问题 <!-- id: 63 -->
+  - [x] 修改 index.html 与 assets/www/index.html 增强 Excel input accept 兼容性 <!-- id: 64 -->
+  - [x] 修改 app.js 与 assets/www/app.js 增加前端后缀防呆拦截校验 <!-- id: 65 -->
+  - [x] 修改 build_apk.ps1 显式注入 android-versionCode="30700" <!-- id: 66 -->
+  - [x] 运行 build_apk.ps1 重新编译生成覆盖更新正式 APK <!-- id: 67 -->
+  - [x] 严格脱敏审核并提交推送至 GitHub 远端 <!-- id: 68 -->
 
 
 

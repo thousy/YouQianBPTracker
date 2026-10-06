@@ -589,6 +589,40 @@
 * **状态**：[x] 已发布并推送至 GitHub (Tag: v1.7)
 * **发布时间**：2026-10-06
 
+---
+
+## 9. 修复 Android 覆盖安装降级拦截 (-25) 与 Excel 导入文件类型兼容
+
+### 问题描述
+1. **安装失败(-25)**：MoMo 手机真机安装时提示“无效安装包，安装版本低于已经安装的版本”，无法覆盖安装；
+2. **导入 Excel 只能选择图片**：点击“导入 Excel”时，手机系统文件选择器降级只弹出相册/图库，无法选择本地 `.xlsx` 文件。
+
+### 根源分析
+1. **versionCode 倒挂触发系统防降级机制**：
+   * 手机此前装过历史包（如 V2.4 / V3.0），其内部 `versionCode` 高达 20400 ~ 30000+；
+   * 新生成的 V1.7.0 默认 versionCode 为 `10700`，低于已安装版本，触发系统安全策略拒绝降级。
+2. **Android WebView 无法解析点号扩展名作为 MIME**：
+   * 原代码 `<input type="file" accept=".xlsx, .xls, .csv">` 使用扩展名；
+   * Android 系统 Intent 过滤器依赖标准 MIME 类型，遇到无法识别的扩展名时直接 fallback 到多媒体图片选择器。
+
+### 修复方案
+1. **注入超高版本号 (versionCode 30700)**：
+   * 在 [build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1) 中配置 `<widget version="1.7.0" android-versionCode="30700">`，对外保持 `V1.7`，对内保证 `versionCode` 处于最高位，支持直接覆盖安装且完美保留用户手机中的历史数据；
+2. **扩展 MIME 属性与前端安全校验**：
+   * [index.html](file:///d:/AI_Project/xueya/index.html) 与 [assets/www/index.html](file:///d:/AI_Project/xueya/assets/www/index.html) 中将 accept 设为：
+     `accept=".xlsx, .xls, .csv, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/vnd.ms-excel, text/csv, */*"`，全面打通系统“文件管理器/文档”选择通道；
+   * [app.js](file:///d:/AI_Project/xueya/app.js) 与 [assets/www/app.js](file:///d:/AI_Project/xueya/assets/www/app.js) 增加后缀名扩展拦截防呆校验，若选错非 Excel 表格文件弹出友好 toast 提示。
+
+### 验证与产物
+* 编译生成新正式包：[YouQian血压助手_V1.7_20261006_1456.apk](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7_20261006_1456.apk)（41.5 MB）；
+* 验证 AndroidManifest.xml：`android:versionCode="30700" android:versionName="1.7.0"`，校验通过；
+* 再次完成全量 Git 隐私脱敏审查，更新 `v1.7` Release Tag 并成功推送到 GitHub 远端仓库。
+
+### 状态
+* **状态**：[x] 已完全解决并重新构建发布
+* **修复日期**：2026-10-06
+
+
 
 
 
