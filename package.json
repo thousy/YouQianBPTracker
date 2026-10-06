@@ -1,6 +1,11 @@
 {
+  "name": "youqian-bp-tracker",
+  "version": "1.7.0",
+  "description": "YouQian Blood Pressure Tracker",
+  "private": true,
   "dependencies": {
     "jimp": "^1.6.1",
+    "onnxruntime-web": "^1.30.0",
     "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   }

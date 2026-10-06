@@ -8,7 +8,7 @@ $originalPath = $env:PATH
 $sdkDir = "d:\android-sdk"
 $gradleDir = "d:\gradle"
 $buildDir = "d:\xueya_build"
-$sourceDir = "d:\xueya"
+$sourceDir = if ($PSScriptRoot) { $PSScriptRoot } else { "d:\AI_Project\xueya" }
 
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host " Starting Android build environment setup..." -ForegroundColor Cyan
@@ -259,6 +259,14 @@ Copy-Item -Path ($sourceDir + "\app.js") -Destination "www\app.js"
 Copy-Item -Path ($sourceDir + "\manifest.json") -Destination "www\manifest.json"
 Copy-Item -Path ($sourceDir + "\app_icon.png") -Destination "www\app_icon.png"
 Copy-Item -Path ($sourceDir + "\sw.js") -Destination "www\sw.js"
+Copy-Item -Path ($sourceDir + "\tesseract.min.js") -Destination "www\tesseract.min.js"
+Copy-Item -Path ($sourceDir + "\worker.min.js") -Destination "www\worker.min.js"
+Copy-Item -Path ($sourceDir + "\tesseract-core-*") -Destination "www\"
+Copy-Item -Path ($sourceDir + "\eng.traineddata.gz") -Destination "www\eng.traineddata.gz"
+Copy-Item -Path ($sourceDir + "\ort.min.js") -Destination "www\ort.min.js" -ErrorAction SilentlyContinue
+Copy-Item -Path ($sourceDir + "\ort-*.wasm") -Destination "www\" -ErrorAction SilentlyContinue
+if (Test-Path ($sourceDir + "\src")) { Copy-Item -Path ($sourceDir + "\src") -Destination "www\src" -Recurse -Force }
+if (Test-Path ($sourceDir + "\models")) { Copy-Item -Path ($sourceDir + "\models") -Destination "www\models" -Recurse -Force }
 
 # Inject app_icon and Android Permissions into config.xml
 Write-Host "Injecting application icon and permissions configuration..." -ForegroundColor White
@@ -278,7 +286,7 @@ $newConfig = $configXml | ForEach-Object {
 '@
         $extraConfig + "`n" + $_
     } elseif ($_ -match '<widget') {
-        $temp = $_ -replace 'version="1.0.0"', 'version="2.4"'
+        $temp = $_ -replace 'version="1.0.0"', 'version="1.7.0"'
         $temp -replace '<widget', '<widget xmlns:android="http://schemas.android.com/apk/res/android"'
     } else {
         $_
@@ -366,7 +374,7 @@ Write-Host "`n[6/6] Compiling APK package..." -ForegroundColor Yellow
 $apkPath = $buildDir + "\YouQianBPTracker\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
 $appName = "$([char]0x8840)$([char]0x538b)$([char]0x52a9)$([char]0x624b)"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-$targetApkName = $sourceDir + "\YouQian" + $appName + "_V2.4_" + $timestamp + ".apk"
+$targetApkName = $sourceDir + "\YouQian" + $appName + "_V1.7_" + $timestamp + ".apk"
 
 if (Test-Path $apkPath) {
     # 用 cmd copy 替代 Copy-Item，能完美兼容中文字符路径

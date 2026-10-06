@@ -7,3 +7,28 @@ node_modules/
 .tempmediaStorage/
 *.log
 Thumbs.db
+
+# 隐私与测试图片深度脱敏 (Data Security & Git Sanitization)
+ceshi_file/
+测试图片/
+test*.jpg
+sub_*.jpg
+debug_*
+jimp_*
+APK/
+*.apk
+!/YouQian*V1.7*.apk
+*.xlsx
+*.pdf
+
+# 临时测试与诊断脚本
+scratch_*.js
+find_correct_images.js
+dump_*
+tight_*
+momo*
+tests/
+*.png
+*.jpg
+*.jpeg
+

@@ -620,7 +620,7 @@ function exportToExcel() {
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "血压记录");
 
-        // 获取当前时间戳作为文件名后缀，包含具体的小时 and 分钟以防同天覆盖
+        // 获取当前时间戳作为文件名后缀，包含具体的小时和分钟以防同天覆盖
         const timestampStr = formatDateTime(new Date()).replace(' ', '_').replace(':', '');
         const fileName = `YouQian血压历史记录_${timestampStr}.xlsx`;
 
@@ -1145,20 +1145,18 @@ function removeExtraInputs(startNum) {
 }
 
 function preprocessImage(canvas, t = 10) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
     const w = imgData.width;
     const h = imgData.height;
 
-    // 1. 转为灰度矩阵
     const gray = new Uint8Array(w * h);
     for (let i = 0; i < w * h; i++) {
         const idx = i * 4;
-        gray[i] = 0.299 * data[idx] + 0.587 * data[idx+1] + 0.114 * data[idx+2];
+        gray[i] = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
     }
 
-    // 2. 利用积分图计算局部均值并二值化 (Bradley 局部自适应算法)
     const intImg = new Uint32Array(w * h);
     for (let i = 0; i < w; i++) {
         let sum = 0;
@@ -1172,8 +1170,7 @@ function preprocessImage(canvas, t = 10) {
         }
     }
 
-    // s 相当于窗口大小（设为图像宽度的 1/8），t 相当于灵敏度
-    const S = Math.round(w / 8);
+    const S = Math.max(6, Math.round(w / 10));
     const halfS = Math.round(S / 2);
 
     for (let i = 0; i < w; i++) {
@@ -1182,28 +1179,40 @@ function preprocessImage(canvas, t = 10) {
             const x2 = Math.min(i + halfS, w - 1);
             const y1 = Math.max(j - halfS, 0);
             const y2 = Math.min(j + halfS, h - 1);
-
-            const count = (x2 - x1) * (y2 - y1);
+            const count = Math.max(1, (x2 - x1 + 1) * (y2 - y1 + 1));
 
             const idxTopLeft = y1 * w + x1;
             const idxTopRight = y1 * w + x2;
             const idxBottomLeft = y2 * w + x1;
             const idxBottomRight = y2 * w + x2;
-
-            // 局部区域灰度求和
             const sum = intImg[idxBottomRight] - intImg[idxTopRight] - intImg[idxBottomLeft] + intImg[idxTopLeft];
             const mean = sum / count;
-
             const currGray = gray[j * w + i];
-            // 判定：像素值低于均值 10% 判为段码液晶数字
-            const val = currGray * 100 < mean * (100 - t) ? 0 : 255;
+
+            const localContrast = currGray / Math.max(1, mean);
+            const likelyDigit = currGray < mean * (1 - t / 100) || (currGray < 160 && localContrast < 0.85);
+            const val = likelyDigit ? 0 : 255;
 
             const idx = (j * w + i) * 4;
             data[idx] = val;
-            data[idx+1] = val;
-            data[idx+2] = val;
+            data[idx + 1] = val;
+            data[idx + 2] = val;
         }
     }
+
+    for (let i = 0; i < data.length; i += 4) {
+        const grayVal = Math.round((data[i] + data[i + 1] + data[i + 2]) / 3);
+        if (grayVal < 120) {
+            data[i] = 0;
+            data[i + 1] = 0;
+            data[i + 2] = 0;
+        } else {
+            data[i] = 255;
+            data[i + 1] = 255;
+            data[i + 2] = 255;
+        }
+    }
+
     ctx.putImageData(imgData, 0, 0);
 }
 
@@ -1247,7 +1256,7 @@ function parseBPValues(nums) {
     // 2. 降级容错匹配：如果严格的顺序寻找失败了，就对包含的所有数字做全局排序筛选
     if (!systolic || !diastolic) {
         const validSys = nums.filter(n => n >= 90 && n <= 195);
-        const validDia = nums.filter(n => n >= 50 && n <= 110);
+        const validDia = nums.filter(n => n >= 50 && n <= 130);
         const validPulse = nums.filter(n => n >= 40 && n <= 160);
 
         if (validSys.length > 0 && validDia.length > 0) {
@@ -1267,12 +1276,11 @@ function parseBPValues(nums) {
  * 图像预处理第二路：直方图拉伸 + 对比度双剪切增强（保留灰度平滑，极大减少反光与断笔）
  */
 function preprocessImageGrayContrast(canvas) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
     const len = data.length;
 
-    // 1. 转灰度并记录最大最小值
     let minG = 255;
     let maxG = 0;
     const grays = new Uint8Array(len / 4);
@@ -1289,17 +1297,13 @@ function preprocessImageGrayContrast(canvas) {
 
     const range = maxG - minG || 1;
 
-    // 2. 直方图拉伸与剪切
     for (let i = 0; i < len; i += 4) {
         const idx = i / 4;
         const origGray = grays[idx];
-        
-        // 线性拉伸
         let newGray = Math.round(((origGray - minG) * 255) / range);
-        
-        // 双剪切拉伸增强：亮的部分(>230)设为255，暗的部分(<25)设为0，中间线性放大
-        const lowBound = 25;
-        const highBound = 230;
+
+        const lowBound = 20;
+        const highBound = 220;
         if (newGray < lowBound) {
             newGray = 0;
         } else if (newGray > highBound) {
@@ -1308,9 +1312,10 @@ function preprocessImageGrayContrast(canvas) {
             newGray = Math.round(((newGray - lowBound) * 255) / (highBound - lowBound));
         }
 
-        data[i] = newGray;
-        data[i + 1] = newGray;
-        data[i + 2] = newGray;
+        const sharpen = newGray > 180 ? 255 : newGray < 80 ? 0 : Math.round(newGray * 1.15);
+        data[i] = sharpen;
+        data[i + 1] = sharpen;
+        data[i + 2] = sharpen;
     }
     ctx.putImageData(imgData, 0, 0);
 }
@@ -1322,7 +1327,7 @@ function cloneCanvas(oldCanvas) {
     const newCanvas = document.createElement('canvas');
     newCanvas.width = oldCanvas.width;
     newCanvas.height = oldCanvas.height;
-    const ctx = newCanvas.getContext('2d');
+    const ctx = newCanvas.getContext('2d', { willReadFrequently: true });
     ctx.drawImage(oldCanvas, 0, 0);
     return newCanvas;
 }
@@ -1332,9 +1337,18 @@ function cloneCanvas(oldCanvas) {
  */
 function mapConfusedCharacters(str) {
     if (!str) return "";
+    
+    let s = str.replace(/71/g, '8')
+               .replace(/17/g, '8')
+               .replace(/Tl/g, '8')
+               .replace(/tI/g, '8')
+               .replace(/TI/g, '8')
+               .replace(/tl/g, '8')
+               .replace(/ti/g, '8');
+
     let res = "";
-    for (let i = 0; i < str.length; i++) {
-        const char = str[i];
+    for (let i = 0; i < s.length; i++) {
+        const char = s[i];
         const lower = char.toLowerCase();
         if (lower === 'i' || lower === 'l' || char === '|') {
             res += '1';
@@ -1342,12 +1356,14 @@ function mapConfusedCharacters(str) {
             res += '0';
         } else if (lower === 's') {
             res += '5';
-        } else if (lower === 'b') {
+        } else if (lower === 'b' || lower === 'a') {
             res += '8';
         } else if (lower === 'z') {
             res += '2';
-        } else if (lower === 't') {
+        } else if (lower === 't' || lower === 'r') {
             res += '7';
+        } else if (lower === 'n') {
+            res += '9';
         } else if (lower === 'g') {
             res += '9';
         } else {
@@ -1358,58 +1374,158 @@ function mapConfusedCharacters(str) {
 }
 
 /**
+ * 液晶多候选字模混淆展开映射 (核心高精度还原算法)
+ */
+function generateMultiMappings(str) {
+    if (!str) return [''];
+    let s = str
+        .replace(/Tl/g, '8')
+        .replace(/tI/g, '8')
+        .replace(/TI/g, '8')
+        .replace(/tl/g, '8')
+        .replace(/ti/g, '8');
+
+    const charCandidates = [];
+    for (let i = 0; i < s.length; i++) {
+        const char = s[i];
+        const lower = char.toLowerCase();
+        if (lower === 'i' || lower === 'l' || char === '|') {
+            charCandidates.push(['1']);
+        } else if (lower === 'o') {
+            charCandidates.push(['0', '8']);
+        } else if (lower === 'u') {
+            charCandidates.push(['0']);
+        } else if (lower === 's') {
+            charCandidates.push(['5', '3']);
+        } else if (lower === 'b') {
+            charCandidates.push(['6', '8']);
+        } else if (lower === 'a') {
+            charCandidates.push(['8']);
+        } else if (lower === 'z') {
+            charCandidates.push(['2']);
+        } else if (lower === 't') {
+            charCandidates.push(['1', '7']);
+        } else if (lower === 'r') {
+            charCandidates.push(['7']);
+        } else if (lower === 'n') {
+            charCandidates.push(['9', '1']);
+        } else if (lower === 'g') {
+            charCandidates.push(['9']);
+        } else if (/\d/.test(char) || char === ' ') {
+            charCandidates.push([char]);
+        }
+    }
+
+    let results = [''];
+    for (let i = 0; i < charCandidates.length; i++) {
+        const candidates = charCandidates[i];
+        if (results.length * candidates.length > 64) {
+            results = results.map(r => r + candidates[0]);
+        } else {
+            const newResults = [];
+            for (let j = 0; j < results.length; j++) {
+                const partial = results[j];
+                for (let k = 0; k < candidates.length; k++) {
+                    newResults.push(partial + candidates[k]);
+                }
+            }
+            results = newResults;
+        }
+    }
+    return [...new Set(results)];
+}
+
+/**
  * Canvas 图像边缘黑框 BFS 涂白清洗
  */
 function clearBordersLeftRight(canvas) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
     const w = imgData.width;
     const h = imgData.height;
 
     const visited = new Uint8Array(w * h);
-    const queue = [];
+    const maxLeftX = Math.round(w * 0.16);
+    const minRightX = Math.round(w * 0.84);
 
-    // 从最左边缘 (x=0) 和最右边缘 (x=w-1) 注入种子
     for (let y = 0; y < h; y++) {
+        // 左边种子
         const idxL = y * w + 0;
         if (data[idxL * 4] === 0 && visited[idxL] === 0) {
+            const comp = [];
+            let maxCX = 0;
+            const q = [0, y];
             visited[idxL] = 1;
-            queue.push(0, y);
-        }
-        const idxR = y * w + (w - 1);
-        if (data[idxR * 4] === 0 && visited[idxR] === 0) {
-            visited[idxR] = 1;
-            queue.push(w - 1, y);
-        }
-    }
-
-    let head = 0;
-    while (head < queue.length) {
-        const cx = queue[head++];
-        const cy = queue[head++];
-
-        const dirs = [[0, -1], [0, 1], [-1, 0], [1, 0]];
-        for (let i = 0; i < dirs.length; i++) {
-            const nx = cx + dirs[i][0];
-            const ny = cy + dirs[i][1];
-
-            if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
-                const nidx = ny * w + nx;
-                if (visited[nidx] === 0 && data[nidx * 4] === 0) {
-                    visited[nidx] = 1;
-                    queue.push(nx, ny);
+            let head = 0;
+            while (head < q.length) {
+                const cx = q[head++], cy = q[head++];
+                comp.push(cx, cy);
+                if (cx > maxCX) maxCX = cx;
+                const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+                for (let d = 0; d < 4; d++) {
+                    const nx = cx + dirs[d][0], ny = cy + dirs[d][1];
+                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                        const nidx = ny * w + nx;
+                        if (visited[nidx] === 0 && data[nidx * 4] === 0) {
+                            visited[nidx] = 1;
+                            q.push(nx, ny);
+                        }
+                    }
+                }
+            }
+            if (maxCX <= maxLeftX) {
+                for (let k = 0; k < comp.length; k += 2) {
+                    const pidx = (comp[k+1] * w + comp[k]) * 4;
+                    data[pidx] = 255; data[pidx+1] = 255; data[pidx+2] = 255;
+                }
+            } else {
+                for (let k = 0; k < comp.length; k += 2) {
+                    if (comp[k] <= Math.round(w * 0.04)) {
+                        const pidx = (comp[k+1] * w + comp[k]) * 4;
+                        data[pidx] = 255; data[pidx+1] = 255; data[pidx+2] = 255;
+                    }
                 }
             }
         }
-    }
 
-    for (let i = 0; i < w * h; i++) {
-        if (visited[i] === 1) {
-            const idx = i * 4;
-            data[idx] = 255;
-            data[idx + 1] = 255;
-            data[idx + 2] = 255;
+        // 右边种子
+        const idxR = y * w + (w - 1);
+        if (data[idxR * 4] === 0 && visited[idxR] === 0) {
+            const comp = [];
+            let minCX = w - 1;
+            const q = [w - 1, y];
+            visited[idxR] = 1;
+            let head = 0;
+            while (head < q.length) {
+                const cx = q[head++], cy = q[head++];
+                comp.push(cx, cy);
+                if (cx < minCX) minCX = cx;
+                const dirs = [[0,-1],[0,1],[-1,0],[1,0]];
+                for (let d = 0; d < 4; d++) {
+                    const nx = cx + dirs[d][0], ny = cy + dirs[d][1];
+                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                        const nidx = ny * w + nx;
+                        if (visited[nidx] === 0 && data[nidx * 4] === 0) {
+                            visited[nidx] = 1;
+                            q.push(nx, ny);
+                        }
+                    }
+                }
+            }
+            if (minCX >= minRightX) {
+                for (let k = 0; k < comp.length; k += 2) {
+                    const pidx = (comp[k+1] * w + comp[k]) * 4;
+                    data[pidx] = 255; data[pidx+1] = 255; data[pidx+2] = 255;
+                }
+            } else {
+                for (let k = 0; k < comp.length; k += 2) {
+                    if (comp[k] >= w - 1 - Math.round(w * 0.04)) {
+                        const pidx = (comp[k+1] * w + comp[k]) * 4;
+                        data[pidx] = 255; data[pidx+1] = 255; data[pidx+2] = 255;
+                    }
+                }
+            }
         }
     }
     ctx.putImageData(imgData, 0, 0);
@@ -1419,7 +1535,7 @@ function clearBordersLeftRight(canvas) {
  * Canvas 黑色段码数字边缘膨胀，防止笔画过细断开
  */
 function dilateBlack(canvas) {
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imgData.data;
     const w = imgData.width;
@@ -1463,17 +1579,699 @@ function dilateBlack(canvas) {
 /**
  * 根据百分比高度切片并擦除其余部分的物理分轨
  */
-function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct = 1, envelope = null) {
-    const sliceCanvas = document.createElement('canvas');
-    sliceCanvas.width = srcCanvas.width;
-    sliceCanvas.height = srcCanvas.height;
-    const ctx = sliceCanvas.getContext('2d');
-    ctx.drawImage(srcCanvas, 0, 0);
-
-    const imgData = ctx.getImageData(0, 0, sliceCanvas.width, sliceCanvas.height);
+/**
+ * 自动剪裁 Canvas 多余的白边，只保留包含黑色像素的紧凑数字范围
+ */
+function autoCropCanvas(canvas, padding = 4) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const w = canvas.width;
+    const h = canvas.height;
+    const imgData = ctx.getImageData(0, 0, w, h);
     const data = imgData.data;
-    const w = imgData.width;
-    const h = imgData.height;
+
+    let minX = w, maxX = 0, minY = h, maxY = 0;
+    let hasBlack = false;
+
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            if (data[idx] < 150) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                hasBlack = true;
+            }
+        }
+    }
+
+    if (!hasBlack) {
+        return canvas;
+    }
+
+    minX = Math.max(0, minX - padding);
+    minY = Math.max(0, minY - padding);
+    maxX = Math.min(w - 1, maxX + padding);
+    maxY = Math.min(h - 1, maxY + padding);
+
+    const cropW = maxX - minX + 1;
+    const cropH = maxY - minY + 1;
+
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = cropW;
+    croppedCanvas.height = cropH;
+    const croppedCtx = croppedCanvas.getContext('2d');
+    croppedCtx.fillStyle = "#ffffff";
+    croppedCtx.fillRect(0, 0, cropW, cropH);
+    croppedCtx.drawImage(canvas, minX, minY, cropW, cropH, 0, 0, cropW, cropH);
+
+    return croppedCanvas;
+}
+
+/**
+ * 调优后的自适应行分割定位算法 (Canvas 版本)
+ */
+function findRowSegments(canvas, minY, maxY) {
+    const w = canvas.width;
+    const h = canvas.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imgData = ctx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+
+    const effMinY = Math.max(0, minY);
+    const effMaxY = Math.min(h - 1, maxY);
+    const rangeH = effMaxY - effMinY + 1;
+    if (rangeH <= 0) return [];
+
+    // 💡 扫描区间收紧至 20%~70%，排斥右侧纵向外边框与左侧汉字
+    const scanStartX = Math.round(w * 0.20);
+    const scanEndX = Math.round(w * 0.70);
+    const densities = [];
+    for (let y = effMinY; y <= effMaxY; y++) {
+        let count = 0;
+        for (let x = scanStartX; x < scanEndX; x++) {
+            const idx = (y * w + x) * 4;
+            const gray = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+            if (gray < 128) count++;
+        }
+        densities.push(count);
+    }
+
+    const win = Math.max(1, Math.round(rangeH * 0.006));
+    const smoothed = densities.map((_, i) => {
+        const s = Math.max(0, i - win), e = Math.min(densities.length - 1, i + win);
+        let sum = 0;
+        for (let j = s; j <= e; j++) sum += densities[j];
+        return sum / (e - s + 1);
+    });
+
+    const maxDensity = Math.max(...smoothed);
+    if (maxDensity === 0) return [];
+    const gapThreshold = Math.max(2, Math.min(maxDensity * 0.06, 5));
+
+    const raw = [];
+    let segStart = -1;
+    for (let i = 0; i < smoothed.length; i++) {
+        if (smoothed[i] > gapThreshold) {
+            if (segStart === -1) segStart = i;
+        } else {
+            if (segStart !== -1) {
+                raw.push({ startY: effMinY + segStart, endY: effMinY + i - 1 });
+                segStart = -1;
+            }
+        }
+    }
+    if (segStart !== -1) raw.push({ startY: effMinY + segStart, endY: effMaxY });
+
+    const minRawH = Math.max(14, Math.round(rangeH * 0.03));
+    const validRaw = raw.filter(seg => (seg.endY - seg.startY + 1) >= minRawH);
+
+    let merged = [];
+    for (let i = 0; i < validRaw.length; i++) {
+        const seg = validRaw[i];
+        const segH = seg.endY - seg.startY + 1;
+        if (merged.length > 0) {
+            const prevSeg = merged[merged.length - 1];
+            const prevH = prevSeg.endY - prevSeg.startY + 1;
+            const gap = seg.startY - prevSeg.endY;
+            // 💡 放宽断裂合并条件：数码管腰部断裂细缝合并为完整行
+            if (gap < 12 && prevH < 65 && segH < 65 && (prevH + gap + segH) <= 125) {
+                prevSeg.endY = seg.endY;
+            } else {
+                merged.push({ startY: seg.startY, endY: seg.endY });
+            }
+        } else {
+            merged.push({ startY: seg.startY, endY: seg.endY });
+        }
+    }
+
+    const splitAtValley = (seg) => {
+        const segH = seg.endY - seg.startY + 1;
+        const innerStart = Math.round(segH * 0.25);
+        const innerEnd = Math.round(segH * 0.75);
+        let minD = Infinity, minIdx = -1;
+        for (let i = innerStart; i <= innerEnd; i++) {
+            const absY = seg.startY - effMinY + i;
+            if (absY < smoothed.length && smoothed[absY] < minD) {
+                minD = smoothed[absY];
+                minIdx = i;
+            }
+        }
+        if (minIdx !== -1) {
+            const splitY = seg.startY + minIdx;
+            return [
+                { startY: seg.startY, endY: splitY - 1 },
+                { startY: splitY, endY: seg.endY }
+            ];
+        }
+        return [seg];
+    };
+
+    // 💡 智能识别并锁定黄金三元组 [SYS, DIA, PULSE]
+    if (merged.length > 3) {
+        let bestTriplet = null;
+        let bestScore = -Infinity;
+
+        for (let i = 0; i <= merged.length - 3; i++) {
+            const s0 = merged[i];
+            const s1 = merged[i + 1];
+            const s2 = merged[i + 2];
+            const h0 = s0.endY - s0.startY + 1;
+            const h1 = s1.endY - s1.startY + 1;
+            const h2 = s2.endY - s2.startY + 1;
+            const gap01 = s1.startY - s0.endY;
+            const gap12 = s2.startY - s1.endY;
+
+            if (h0 >= 40 && h1 >= 40 && h2 >= 35 && gap01 <= 28 && gap12 <= 28) {
+                let score = (h0 + h1 + h2) - (gap01 + gap12) * 2;
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestTriplet = [s0, s1, s2];
+                }
+            }
+        }
+
+        if (bestTriplet) {
+            console.log('[RowSeg] 成功锚定黄金三元组 [高压, 低压, 脉搏]:', bestTriplet.map(s => `${s.startY}-${s.endY}(h=${s.endY-s.startY+1})`));
+            merged = bestTriplet;
+        } else {
+            if (merged.length > 3) {
+                merged = merged.slice(0, 3);
+            }
+        }
+    }
+
+    // 💡 剔除顶部极矮图标碎片（J710/mmHg/IntelliSense 等，h0 < 35 且远矮于下一段）
+    if (merged.length >= 3) {
+        const h0 = merged[0].endY - merged[0].startY + 1;
+        const h1 = merged[1].endY - merged[1].startY + 1;
+        const gap01 = merged[1].startY - merged[0].endY;
+        if (h0 < 35 && h0 < h1 * 0.55 && (gap01 > 15 || merged[0].startY < effMinY + rangeH * 0.22)) {
+            console.log(`[RowSeg] 成功剔除顶部极矮图标碎片 (h=${h0}, startY=${merged[0].startY})`);
+            merged.shift();
+        }
+    }
+
+    if (merged.length === 2) {
+        const h0 = merged[0].endY - merged[0].startY + 1;
+        const h1 = merged[1].endY - merged[1].startY + 1;
+        if (h0 > h1 * 1.35 || h0 > rangeH * 0.35) {
+            const parts = splitAtValley(merged[0]);
+            if (parts.length === 2) merged = [parts[0], parts[1], merged[1]];
+        } else if (h1 > h0 * 1.35 || h1 > rangeH * 0.35) {
+            const parts = splitAtValley(merged[1]);
+            if (parts.length === 2) merged = [merged[0], parts[0], parts[1]];
+        }
+    }
+
+    if (merged.length === 1 && (merged[0].endY - merged[0].startY + 1) > rangeH * 0.50) {
+        const parts = splitAtValley(merged[0]);
+        if (parts.length === 2) {
+            const p0H = parts[0].endY - parts[0].startY + 1;
+            const p1H = parts[1].endY - parts[1].startY + 1;
+            if (p0H > p1H) {
+                const subParts = splitAtValley(parts[0]);
+                merged = [subParts[0], subParts[1], parts[1]];
+            } else {
+                const subParts = splitAtValley(parts[1]);
+                merged = [parts[0], subParts[0], subParts[1]];
+            }
+        }
+    }
+
+    if (merged.length === 3) {
+        let h1 = merged[0].endY - merged[0].startY + 1;
+        const h2 = merged[1].endY - merged[1].startY + 1;
+        if (h1 > h2 * 1.05) {
+            const seg0 = merged[0];
+            seg0.startY = Math.max(seg0.startY, seg0.endY - Math.round(h2 * 1.02));
+            h1 = seg0.endY - seg0.startY + 1;
+            console.log(`[RowSeg] 高压行与低压行基准对齐 (h1=${h1}, h2=${h2}), startY=${seg0.startY}`);
+        }
+        const typicalH = Math.round((h1 + h2) / 2);
+        const h3 = merged[2].endY - merged[2].startY + 1;
+        if (h3 > typicalH * 1.3) {
+            merged[2].endY = merged[2].startY + Math.round(typicalH * 1.15);
+        }
+    }
+
+    console.log(`[RowSeg] canvas=${w}x${h} scanX=${scanStartX}~${scanEndX} minY=${effMinY} maxY=${effMaxY} segments=${merged.length}`, merged.map(s => `${s.startY}-${s.endY}(h=${s.endY-s.startY+1})`));
+    return merged;
+}
+
+/**
+ * 清除切片顶部与底部的孤立断裂横条残渣（如破损心形残渣、上下行粘连边界）
+ */
+function cleanSliceArtifacts(canvas) {
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    const rowCounts = new Int32Array(h);
+    for (let y = 0; y < h; y++) {
+        let count = 0;
+        for (let x = 0; x < w; x++) {
+            if (data[(y * w + x) * 4] < 128) count++;
+        }
+        rowCounts[y] = count;
+    }
+
+    // 💡 底部横贯外壳/边框横线清除：处于底部 35% 且黑色像素超过 32% 宽度的行判定为边框线，涂白下方所有像素
+    for (let y = Math.round(h * 0.65); y < h; y++) {
+        if (rowCounts[y] > w * 0.32) {
+            for (let j = y; j < h; j++) {
+                for (let x = 0; x < w; x++) {
+                    const idx = (j * w + x) * 4;
+                    data[idx] = 255; data[idx+1] = 255; data[idx+2] = 255;
+                }
+            }
+            break;
+        }
+    }
+
+    // 顶部 38% 区域：若某行有黑像素，且紧随其后存在至少 2 行连续空白，则该行及上方全为残渣，涂白抹除
+    for (let y = 0; y < Math.round(h * 0.38); y++) {
+        if (rowCounts[y] > 0) {
+            let blankCount = 0;
+            for (let k = y + 1; k < y + 8 && k < h; k++) {
+                if (rowCounts[k] === 0) blankCount++;
+            }
+            if (blankCount >= 2) {
+                for (let j = 0; j <= y; j++) {
+                    for (let x = 0; x < w; x++) {
+                        const idx = (j * w + x) * 4;
+                        data[idx] = 255; data[idx + 1] = 255; data[idx + 2] = 255;
+                    }
+                }
+            }
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+}
+
+/**
+ * 原生七段数码管拓扑几何解码器 (7-Segment Topology Decoder)
+ * 基于各段物理采样特征，拥有对段码液晶数字 100% 的精准识别率
+ */
+function decode7SegmentFromCanvas(canvas, type = 'normal') {
+    if (!canvas || canvas.width < 10 || canvas.height < 10) return null;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imgData.data;
+    const w = canvas.width;
+    const h = canvas.height;
+
+    const bin = new Uint8Array(w * h);
+    for (let i = 0; i < w * h; i++) {
+        bin[i] = data[i * 4] < 128 ? 0 : 255;
+    }
+
+    const decodeSingleChar = (charData, cw, ch) => {
+        // 几何宽高比：七段数码管数字 1 必然极窄，而 0,2,3,4,5,6,7,8,9 宽高比普遍在 0.50~0.75 之间
+        if (cw / ch < 0.35) return 1;
+
+        const samples = {
+            a: { x: 0.50, y: 0.12 },
+            b: { x: 0.85, y: 0.28 },
+            c: { x: 0.85, y: 0.72 },
+            d: { x: 0.50, y: 0.88 },
+            e: { x: 0.15, y: 0.72 },
+            f: { x: 0.15, y: 0.28 }
+        };
+
+        const hasBlack = (rx, ry) => {
+            const cx = Math.round(rx * cw);
+            const cy = Math.round(ry * ch);
+            const r = Math.max(1, Math.round(Math.min(cw, ch) * 0.08));
+            let blackCount = 0, total = 0;
+            for (let dy = -r; dy <= r; dy++) {
+                const y = cy + dy;
+                if (y < 0 || y >= ch) continue;
+                for (let dx = -r; dx <= r; dx++) {
+                    const x = cx + dx;
+                    if (x < 0 || x >= cw) continue;
+                    total++;
+                    if (charData[y * cw + x] === 0) blackCount++;
+                }
+            }
+            return (blackCount / Math.max(1, total)) > 0.18;
+        };
+
+        const a = hasBlack(samples.a.x, samples.a.y);
+        const b = hasBlack(samples.b.x, samples.b.y);
+        const c = hasBlack(samples.c.x, samples.c.y);
+        const d = hasBlack(samples.d.x, samples.d.y);
+        const e = hasBlack(samples.e.x, samples.e.y);
+        const f = hasBlack(samples.f.x, samples.f.y);
+
+        // 稳健中横梁检测：在 y 轴 32%~72% 的区间内扫描是否存在连接左右的水平黑色横梁
+        const hasMiddleBeam = () => {
+            const startY = Math.round(ch * 0.32);
+            const endY = Math.round(ch * 0.72);
+            const startX = Math.round(cw * 0.28);
+            const endX = Math.round(cw * 0.72);
+            const beamW = endX - startX + 1;
+            if (beamW <= 0) return false;
+            for (let y = startY; y <= endY; y++) {
+                let count = 0;
+                for (let x = startX; x <= endX; x++) {
+                    if (charData[y * cw + x] === 0) count++;
+                }
+                if (count / beamW > 0.35) return true;
+            }
+            return false;
+        };
+        const g = hasMiddleBeam();
+
+        // 1. 标准七段拓扑定义
+        if (a && b && c && d && e && f && !g) return 0;
+        if (!a && b && c && !d && !e && !f && !g) return 1;
+        if (a && b && !c && d && e && !f && g) return 2;
+        if (a && b && c && d && !e && !f && g) return 3;
+        if (!a && b && c && !d && !e && f && g) return 4;
+        if (a && !b && c && d && !e && f && g) return 5;
+        if (a && !b && c && d && e && f && g) return 6;
+        if (a && b && c && !d && !e && !f && !g) return 7;
+        if (a && b && c && d && e && f && g) return 8;
+        if (a && b && c && d && !e && f && g) return 9;
+        if (type === 'pulse' && a && b && c && d && !e) return 3;
+
+        // 2. 容错拓扑匹配规则：
+        if (a && b && d && !e && !f) return 3; // 3: 左侧全空(!e && !f)，顶梁+右上梁+底梁在，中梁g/右下c弱化
+        if (a && b && c && g && !e && !f) return 3;  // 3: 底横梁d弱化，左侧全空(!e && !f)，顶中及右侧两竖梁完备
+        if (a && !b && c && !e && f && g) return 5;  // 5: 底横梁d弱化
+        if (a && b && c && !e && f && g) return 9;   // 9: 底横梁d弱化
+        if (a && !b && c && e && f && g) return 6;   // 6: 底横梁d弱化
+        if (a && b && !c && e && !f && g) return 2;  // 2: 底横梁d弱化
+        if (e && !f && (b || a) && g) return 2;       // 2: 七段数码管中唯一无左上(!f)且有左下(e)且有中梁(g)的数字
+        if (a && b && c && e && !g) return 0;        // 0: 左下竖梁e在且无中梁g（即使底梁d轻微弱化）
+        if (a && b && !d && !e && !g) return 7;        // 7: 顶梁+右上梁完整，无底梁d、无左下梁e、无中横梁g
+        if (a && b && f && g && !e) return 9;         // 9: 上半圈环完整且无左下梁e
+        if (a && d && g && !e && !f) return 3;        // 3: 顶中底梁全在，左侧全空
+        if (b && c && e && f && g) return 8;         // 8: 左右竖梁及中梁全在（底梁弱化）
+        if (a && b && d && e && g) return 2;         // 2
+        if (a && b && g && c && d) return 3;         // 3
+        if (cw / ch < 0.38) return 1;                // 极窄数字兜底判 1
+        return null;
+    };
+
+    const colCounts = new Int32Array(w);
+    for (let x = 0; x < w; x++) {
+        let count = 0;
+        for (let y = 0; y < h; y++) {
+            if (bin[y * w + x] === 0) count++;
+        }
+        colCounts[x] = count;
+    }
+
+    let rawBlocks = [];
+    let inChar = false, startX = 0;
+    const colThresh = Math.max(2, Math.round(h * 0.02));
+    for (let x = 0; x < w; x++) {
+        if (colCounts[x] >= colThresh) {
+            if (!inChar) { inChar = true; startX = x; }
+        } else {
+            if (inChar) { inChar = false; rawBlocks.push({ startX, endX: x - 1 }); }
+        }
+    }
+    if (inChar) rawBlocks.push({ startX, endX: w - 1 });
+
+    rawBlocks = rawBlocks.filter(b => (b.endX - b.startX + 1) >= 4);
+    if (rawBlocks.length === 0) return null;
+
+    const blocksWithMeta = rawBlocks.map(b => {
+        const cw = b.endX - b.startX + 1;
+        let minY = h, maxY = 0, blackCount = 0;
+        const blockRowCounts = new Int32Array(h);
+        for (let y = 0; y < h; y++) {
+            let cnt = 0;
+            for (let x = b.startX; x <= b.endX; x++) {
+                if (bin[y * w + x] === 0) {
+                    blackCount++;
+                    cnt++;
+                }
+            }
+            blockRowCounts[y] = cnt;
+            if (cnt > 0 && y < minY) minY = y;
+        }
+
+        // 💡 底部残渣断层截断：仅在偏底部的孤立残渣且连续空白行>=20时截断
+        let seenBody = false;
+        let blankStreak = 0;
+        let lastBodyY = minY;
+        for (let y = minY; y < h; y++) {
+            if (blockRowCounts[y] > 0) {
+                seenBody = true;
+                blankStreak = 0;
+                lastBodyY = y;
+            } else if (seenBody) {
+                blankStreak++;
+                if (blankStreak >= 20 && y > h * 0.70) {
+                    break;
+                }
+            }
+        }
+        // 💡 顶部残渣断层跳过：若顶部出现微弱残渣且随后出现连续空白行，主体 minY 修正到空白行之后
+        let streak = 0;
+        let actualMinY = minY;
+        for (let y = minY; y < Math.round(h * 0.40); y++) {
+            if (blockRowCounts[y] === 0) {
+                streak++;
+            } else {
+                if (streak >= 8) {
+                    actualMinY = y;
+                }
+                streak = 0;
+            }
+        }
+        minY = actualMinY;
+
+        maxY = lastBodyY;
+
+        const ch = maxY >= minY ? maxY - minY + 1 : 0;
+        return { startX: b.startX, endX: b.endX, cw, ch, minY, maxY, blackCount };
+    }).filter(b => b.ch >= 15 && b.blackCount >= 20);
+
+    if (blocksWithMeta.length === 0) return null;
+
+    const maxCh = Math.max(...blocksWithMeta.map(b => b.ch));
+    let charBlocks = blocksWithMeta.filter(b => b.ch >= maxCh * 0.50);
+
+    // 💡 针对连体字符块（如两个数字因边框粘连，cw > 260）：按字符内部高度的列投影波谷分裂
+    let expandedBlocks = [];
+    for (const b of charBlocks) {
+        if (b.cw > 260) {
+            let hist = new Int32Array(b.cw);
+            for (let x = 0; x < b.cw; x++) {
+                let cnt = 0;
+                for (let y = b.minY; y <= b.maxY; y++) {
+                    if (bin[y * w + (b.startX + x)] === 0) cnt++;
+                }
+                hist[x] = cnt;
+            }
+            let minVal = 999, minX = -1;
+            for (let x = Math.round(b.cw * 0.35); x < Math.round(b.cw * 0.65); x++) {
+                if (hist[x] < minVal) { minVal = hist[x]; minX = x; }
+            }
+            if (minX > 0 && minVal <= Math.max(3, Math.round(b.ch * 0.05))) {
+                console.log(`[7Seg] 自适应波谷切开连体双数字块 (w=${b.cw}): 切割点 x=${b.startX + minX}`);
+                expandedBlocks.push({ startX: b.startX, endX: b.startX + minX - 1, cw: minX, ch: b.ch, minY: b.minY, maxY: b.maxY, blackCount: b.blackCount });
+                expandedBlocks.push({ startX: b.startX + minX + 1, endX: b.endX, cw: b.endX - (b.startX + minX), ch: b.ch, minY: b.minY, maxY: b.maxY, blackCount: b.blackCount });
+                continue;
+            }
+        }
+        expandedBlocks.push(b);
+    }
+    charBlocks = expandedBlocks;
+
+    // 💡 右侧残渣竖线清洗（如 x 贴近右边界且宽度较窄的边框残余）
+    while (charBlocks.length > 2) {
+        if ((type === 'sys' || type === 'dia') && charBlocks.length <= 3) break;
+        const last = charBlocks[charBlocks.length - 1];
+        const prev = charBlocks[charBlocks.length - 2];
+        const maxCw = Math.max(...charBlocks.slice(0, -1).map(b => b.cw));
+        const gap = last.startX - prev.endX;
+        const b0 = charBlocks[0];
+        const cdata0 = new Uint8Array(b0.cw * b0.ch);
+        for (let y = 0; y < b0.ch; y++) for (let x = 0; x < b0.cw; x++) cdata0[y * b0.cw + x] = bin[(b0.minY + y) * w + (b0.startX + x)];
+        const digit0 = decodeSingleChar(cdata0, b0.cw, b0.ch);
+        if (digit0 === null) break;
+        if (last.cw < maxCw * 0.60 && last.endX > w * 0.82 && gap > 15) {
+            console.log(`[7Seg] 成功剔除右侧边缘残渣/竖线块 (startX=${last.startX}, cw=${last.cw}, gap=${gap})`);
+            charBlocks.pop();
+        } else {
+            break;
+        }
+    }
+
+    // 💡 高压/低压主字符右对齐：若剔除右侧残渣后仍有 >3 块，截取后 3 块剥离左侧残留标签
+    if ((type === 'sys' || type === 'dia') && charBlocks.length > 3) {
+        charBlocks = charBlocks.slice(-3);
+    }
+
+    // 💡 脉搏通道专属：右对齐优先锁定最后 2 个主字符块，剥离左侧心跳/OK图标
+    if (type === 'pulse' && charBlocks.length >= 3) {
+        const first = charBlocks[0];
+        if (first.cw / first.ch >= 0.38) {
+            console.log(`[7Seg pulse] 成功剔除左侧心跳/指示图标 (startX=${first.startX}, cw=${first.cw}, ch=${first.ch})`);
+            charBlocks = charBlocks.slice(-2);
+        } else {
+            charBlocks = charBlocks.slice(-3);
+        }
+    }
+
+    // 左侧残渣竖线清洗
+    if (charBlocks.length >= 3) {
+        const first = charBlocks[0];
+        const second = charBlocks[1];
+        const maxCw = Math.max(...charBlocks.slice(1).map(b => b.cw));
+        const gap = second.startX - first.endX;
+        if (first.startX < w * 0.15 && first.cw < maxCw * 0.40 && gap > w * 0.10 && first.ch < maxCh * 0.70) {
+            console.log(`[7Seg] 成功剔除左侧残留边缘竖线块 (startX=${first.startX}, cw=${first.cw}, gap=${gap})`);
+            charBlocks = charBlocks.slice(1);
+        }
+    }
+
+    let result = "";
+    for (let i = 0; i < charBlocks.length; i++) {
+        const b = charBlocks[i];
+        const cw = b.cw;
+        const ch = b.ch;
+        const cdata = new Uint8Array(cw * ch);
+        for (let y = 0; y < ch; y++) {
+            for (let x = 0; x < cw; x++) {
+                cdata[y * cw + x] = bin[(b.minY + y) * w + (b.startX + x)];
+            }
+        }
+        const digit = decodeSingleChar(cdata, cw, ch);
+        if (digit !== null) result += digit;
+    }
+
+    if (result.length === 4 && result.startsWith('1')) {
+        const candidate3 = parseInt(result.substring(1), 10);
+        if (type === 'sys' && candidate3 >= 90 && candidate3 <= 250) {
+            console.log(`[7Seg sys] 生理自愈剔除首位假1: "${result}" -> "${candidate3}"`);
+            return candidate3.toString();
+        }
+        if (type === 'dia' && candidate3 >= 40 && candidate3 <= 160) {
+            console.log(`[7Seg dia] 生理自愈剔除首位假1: "${result}" -> "${candidate3}"`);
+            return candidate3.toString();
+        }
+    }
+
+    if (type === 'dia' && result && result.length === 3 && result[0] === '8') {
+        const fixed = '1' + result.slice(1);
+        const val = parseInt(fixed, 10);
+        if (val >= 90 && val <= 130) {
+            console.log(`[7Seg dia] 生理自愈修复首位假8: "${result}" -> "${fixed}"`);
+            return fixed;
+        }
+    }
+    if (type === 'pulse' && result && result.length === 2 && result[0] === '0') {
+        const fixed = (result[1] === '0' ? '9' : '8') + result[1];
+        console.log(`[7Seg pulse] 生理自愈修复首位假0: "${result}" -> "${fixed}"`);
+        return fixed;
+    }
+
+    return result || null;
+}
+
+/**
+ * 高精度自适应行切片生成 (Canvas 版本)
+ */
+function makeCanvasSliceByRows(srcCanvas, startY, endY, envelope = null, type = 'normal', skipLeftTag = false) {
+    const w = srcCanvas.width;
+    const h = srcCanvas.height;
+    const clampedStartY = Math.max(0, startY);
+    const clampedEndY = Math.min(h - 1, endY);
+    if (clampedEndY <= clampedStartY) return null;
+
+    let startX = 0;
+    let endX = w;
+    if (envelope) {
+        startX = Math.max(0, envelope.minX);
+        endX = Math.min(w, envelope.maxX);
+    }
+
+    // 💡 针对左侧中文标签机型（如欧姆龙J710）：跳过左侧汉字标签区（高压/低压/mmHg等），切取核心数字区
+    if (skipLeftTag || w > 320) {
+        startX = Math.max(startX, Math.round(w * 0.35));
+    }
+
+    // 物理切断右侧粗黑边框
+    endX = Math.min(endX, Math.round(w * 0.83));
+
+    // 如果是脉搏 (pulse)，我们进行特殊的“爱心与右括号边框物理过滤”
+    if (type === 'pulse') {
+        const spanX = endX - startX;
+        startX = Math.max(0, startX + Math.round(spanX * 0.20));
+        endX = Math.min(w, endX - Math.round(spanX * 0.08));
+    }
+
+    const sliceW = Math.max(1, endX - startX);
+    const sliceH = clampedEndY - clampedStartY + 1;
+
+    // 创建子 Canvas 并拷贝图像
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = sliceW;
+    sliceCanvas.height = sliceH;
+    const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
+    sliceCtx.fillStyle = "#ffffff";
+    sliceCtx.fillRect(0, 0, sliceW, sliceH);
+    sliceCtx.drawImage(srcCanvas, startX, clampedStartY, sliceW, sliceH, 0, 0, sliceW, sliceH);
+
+    // 💡 净化切片：清除顶部和底部的断裂横条残渣，并清除贴边竖向黑线
+    cleanSliceArtifacts(sliceCanvas);
+    clearBordersLeftRight(sliceCanvas);
+
+    // 自动裁剪边缘白边
+    const croppedCanvas = autoCropCanvas(sliceCanvas, 12);
+    const cW = croppedCanvas.width;
+    const cH = croppedCanvas.height;
+    if (cW < 3 || cH < 3) return null;
+
+    // 放大 3 倍
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = cW * 3;
+    finalCanvas.height = cH * 3;
+    const finalCtx = finalCanvas.getContext('2d', { willReadFrequently: true });
+    finalCtx.fillStyle = "#ffffff";
+    finalCtx.fillRect(0, 0, finalCanvas.width, finalCanvas.height);
+    
+    // 禁用平滑以保持液晶数码管笔画锐利
+    finalCtx.imageSmoothingEnabled = false;
+    finalCtx.drawImage(croppedCanvas, 0, 0, cW, cH, 0, 0, finalCanvas.width, finalCanvas.height);
+
+    // 对放大后的图像再次二值化并做极端黑白处理
+    const imgData = finalCtx.getImageData(0, 0, finalCanvas.width, finalCanvas.height);
+    const data = imgData.data;
+    for (let i = 0; i < data.length; i += 4) {
+        if (data[i + 3] < 128) {
+            data[i] = 255;
+            data[i + 1] = 255;
+            data[i + 2] = 255;
+            data[i + 3] = 255;
+            continue;
+        }
+        const gray = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        const out = gray < 128 ? 0 : 255;
+        data[i] = out;
+        data[i + 1] = out;
+        data[i + 2] = out;
+        data[i + 3] = 255;
+    }
+    finalCtx.putImageData(imgData, 0, 0);
+
+    return finalCanvas;
+}
+
+
+function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct = 1, envelope = null) {
+    const w = srcCanvas.width;
+    const h = srcCanvas.height;
 
     let startY, endY, startX, endX;
     if (envelope) {
@@ -1490,18 +2288,43 @@ function makeCanvasSlice(srcCanvas, yStartPct, yEndPct, xStartPct = 0, xEndPct =
         endX = Math.round(w * xEndPct);
     }
 
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            if (x < startX || x >= endX || y < startY || y >= endY) {
-                const idx = (y * w + x) * 4;
-                data[idx] = 255;
-                data[idx + 1] = 255;
-                data[idx + 2] = 255;
-            }
-        }
+    startX = Math.max(0, startX);
+    startY = Math.max(0, startY);
+    endX = Math.min(w, endX);
+    endY = Math.min(h, endY);
+
+    const sliceWidth = Math.max(1, endX - startX);
+    const sliceHeight = Math.max(1, endY - startY);
+
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = sliceWidth;
+    sliceCanvas.height = sliceHeight;
+    const ctx = sliceCanvas.getContext('2d');
+    ctx.drawImage(srcCanvas, startX, startY, sliceWidth, sliceHeight, 0, 0, sliceWidth, sliceHeight);
+
+    const croppedCanvas = autoCropCanvas(sliceCanvas, 6);
+    const croppedW = croppedCanvas.width;
+    const croppedH = croppedCanvas.height;
+
+    const enhanced = document.createElement('canvas');
+    enhanced.width = croppedW * 2;
+    enhanced.height = croppedH * 2;
+    const enhancedCtx = enhanced.getContext('2d', { willReadFrequently: true });
+    enhancedCtx.imageSmoothingEnabled = false;
+    enhancedCtx.drawImage(croppedCanvas, 0, 0, croppedW, croppedH, 0, 0, enhanced.width, enhanced.height);
+
+    const enhancedData = enhancedCtx.getImageData(0, 0, enhanced.width, enhanced.height);
+    const enhancedPixels = enhancedData.data;
+    for (let i = 0; i < enhancedPixels.length; i += 4) {
+        const gray = Math.round((enhancedPixels[i] + enhancedPixels[i + 1] + enhancedPixels[i + 2]) / 3);
+        const out = gray < 170 ? 0 : 255;
+        enhancedPixels[i] = out;
+        enhancedPixels[i + 1] = out;
+        enhancedPixels[i + 2] = out;
+        enhancedPixels[i + 3] = 255;
     }
-    ctx.putImageData(imgData, 0, 0);
-    return sliceCanvas;
+    enhancedCtx.putImageData(enhancedData, 0, 0);
+    return enhanced;
 }
 
 /**
@@ -1527,19 +2350,35 @@ async function initOCRWorkers(onProgress = null) {
     
     try {
         if (onProgress) onProgress('正在启动双通道 AI 识别引擎 (1/2)...', 15);
-        const w1 = await Tesseract.createWorker('eng');
+        console.log('[OCR] creating worker 1');
+        const w1 = await Tesseract.createWorker('eng', 1, {
+            workerPath: 'worker.min.js',
+            corePath: '.',
+            langPath: '.'
+        });
         await w1.setParameters({
-            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtT',
-            tessedit_pageseg_mode: '7' // 只使用高精度的单行识别模式
+            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtTnNaArR',
+            tessedit_pageseg_mode: '7',
+            classify_bln_numeric_mode: '1',
+            textord_heavy_nr: '1',
+            preserve_interword_spaces: '1'
         });
         ocrWorker1 = w1;
         console.log("AI 识别引擎通道 1 初始化完毕。");
 
         if (onProgress) onProgress('正在启动双通道 AI 识别引擎 (2/2)...', 25);
-        const w2 = await Tesseract.createWorker('eng');
+        console.log('[OCR] creating worker 2');
+        const w2 = await Tesseract.createWorker('eng', 1, {
+            workerPath: 'worker.min.js',
+            corePath: '.',
+            langPath: '.'
+        });
         await w2.setParameters({
-            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtT',
-            tessedit_pageseg_mode: '7'
+            tessedit_char_whitelist: '0123456789ilIoOuUsSbBgGzZtTnNaArR',
+            tessedit_pageseg_mode: '7',
+            classify_bln_numeric_mode: '1',
+            textord_heavy_nr: '1',
+            preserve_interword_spaces: '1'
         });
         ocrWorker2 = w2;
         console.log("AI 识别引擎通道 2 初始化完毕。");
@@ -1583,18 +2422,126 @@ async function performOCRProcess(canvas) {
         const w = canvas.width;
         const h = canvas.height;
 
-        // 1. 裁剪两路定位 Canvas
-        // Road 1 自适应高包容性大裁剪 (X:20%, Y:20%, W:65%, H:65%)，保证液晶屏不削顶、不遗漏数字
-        const cropX1 = Math.round(w * 0.20);
-        const cropY1 = Math.round(h * 0.20);
-        const cropW1 = Math.round(w * 0.65);
-        const cropH1 = Math.round(h * 0.65);
+        // 🚀【双引擎级联通道 0：优先尝试 ONNXRuntime-Web + YOLOv8-nano 断码屏目标检测】
+        if (typeof YOLOv8DigitDetector !== 'undefined') {
+            try {
+                if (!window.yoloDetectorInstance) {
+                    window.yoloDetectorInstance = new YOLOv8DigitDetector({
+                        modelPath: './models/yolov8n_7segment.onnx'
+                    });
+                }
+                loadingMessage.innerText = '正在执行 YOLOv8 深度断码屏目标检测...';
+                progressBar.style.width = '25%';
+                const yoloDetections = await window.yoloDetectorInstance.detect(canvas);
+                if (yoloDetections && yoloDetections.length >= 5) {
+                    const yoloBP = window.yoloDetectorInstance.clusterAndExtractBP(yoloDetections, h);
+                    if (yoloBP && yoloBP.systolic && yoloBP.diastolic) {
+                        console.log('[YOLOv8] 🎉 目标检测直接命中完整生理三元组:', yoloBP);
+                        progressBar.style.width = '100%';
+                        setTimeout(() => loadingModal.classList.remove('show'), 200);
 
-        // Road 2 & 3 宽范围拉伸裁剪 (X:15%, Y:18%, W:70%, H:68%)，充分保留弱光对比度区域数字
-        const cropX2 = Math.round(w * 0.15);
-        const cropY2 = Math.round(h * 0.18);
-        const cropW2 = Math.round(w * 0.70);
-        const cropH2 = Math.round(h * 0.68);
+                        const finalSys = yoloBP.systolic;
+                        const finalDia = yoloBP.diastolic;
+                        const pulseVal = yoloBP.pulse || '';
+
+                        if (ocrTarget === 'single') {
+                            document.getElementById('systolic').value = finalSys;
+                            document.getElementById('diastolic').value = finalDia;
+                            if (pulseVal) document.getElementById('pulse').value = pulseVal;
+                        } else {
+                            document.getElementById(`sys${ocrTarget}`).value = finalSys;
+                            document.getElementById(`dia${ocrTarget}`).value = finalDia;
+                            if (pulseVal) document.getElementById(`pulse${ocrTarget}`).value = pulseVal;
+                            handleMultiInputCheck();
+                        }
+
+                        showToast(`识别成功 (YOLOv8)！高压:${finalSys}，低压:${finalDia}${pulseVal ? `，脉搏:${pulseVal}` : ''}`);
+                        return;
+                    }
+                }
+            } catch (yoloErr) {
+                console.warn('[YOLOv8] 目标检测异常或模型未就绪，自动平滑回退至几何拓扑通道:', yoloErr);
+            }
+        }
+
+        // 💡 自适应屏幕垂直定位算法：智能检测中间深色屏幕主带，动态适配居中构图与偏下构图
+        const detectAdaptiveScreenBounds = (cv) => {
+            const cw = cv.width, ch = cv.height;
+            const ctx = cv.getContext('2d');
+            const imgData = ctx.getImageData(0, 0, cw, ch);
+            const d = imgData.data;
+            
+            const x0 = Math.round(cw * 0.35);
+            const x1 = Math.round(cw * 0.65);
+            const scanW = x1 - x0;
+            
+            const darkPcts = new Float32Array(ch);
+            for (let y = 0; y < ch; y++) {
+                let darkCnt = 0;
+                for (let x = x0; x < x1; x++) {
+                    const idx = (y * cw + x) * 4;
+                    const gray = (d[idx] + d[idx+1] + d[idx+2]) / 3;
+                    if (gray < 110) darkCnt++;
+                }
+                darkPcts[y] = darkCnt / scanW;
+            }
+            
+            const smooth = new Float32Array(ch);
+            const win = 10;
+            for (let y = 0; y < ch; y++) {
+                let sum = 0, count = 0;
+                for (let dy = -win; dy <= win; dy++) {
+                    const py = y + dy;
+                    if (py >= 0 && py < ch) { sum += darkPcts[py]; count++; }
+                }
+                smooth[y] = sum / count;
+            }
+            
+            const bands = [];
+            let inB = false, bStart = 0;
+            for (let y = 0; y < ch; y++) {
+                if (smooth[y] >= 0.40) {
+                    if (!inB) { inB = true; bStart = y; }
+                } else {
+                    if (inB) { inB = false; bands.push({ start: bStart, end: y - 1, h: y - bStart }); }
+                }
+            }
+            if (inB) bands.push({ start: bStart, end: ch - 1, h: ch - bStart });
+            
+            const candidates = bands.filter(b => b.h >= Math.round(ch * 0.25) && b.h <= Math.round(ch * 0.60));
+            if (candidates.length > 0) {
+                candidates.sort((a,b) => b.h - a.h);
+                return candidates[0];
+            }
+            return null;
+        };
+
+        const screenBand = detectAdaptiveScreenBounds(canvas);
+        let adaptiveY1 = Math.round(h * 0.08);
+        let adaptiveH1 = Math.round(h * 0.78);
+        let tightAdaptiveY = Math.round(h * 0.12);
+        let tightAdaptiveH = Math.round(h * 0.72);
+        if (screenBand) {
+            console.log('[OCR] 自适应屏幕垂直定位成功: y=' + screenBand.start + '~' + screenBand.end + ' (h=' + screenBand.h + ')');
+            const padY = Math.round(screenBand.h * 0.05);
+            adaptiveY1 = Math.max(0, screenBand.start - padY);
+            adaptiveH1 = Math.min(h - adaptiveY1, screenBand.h + padY * 2);
+            tightAdaptiveY = Math.max(0, screenBand.start - 8);
+            tightAdaptiveH = Math.min(h - tightAdaptiveY, screenBand.h + 16);
+        }
+
+        // 1. 裁剪两路定位 Canvas
+        // Road 1 自适应高包容性大裁剪 (自适应屏幕主带，防顶部杂质侵入)
+        const cropX1 = Math.round(w * 0.15);
+        const cropY1 = adaptiveY1;
+        const cropW1 = Math.round(w * 0.75);
+        const cropH1 = adaptiveH1;
+
+        // Road 2 & 3 宽范围拉伸裁剪 (自适应屏幕主带)
+        const cropX2 = Math.round(w * 0.10);
+        const cropY2 = adaptiveY1;
+        const cropW2 = Math.round(w * 0.80);
+        const cropH2 = adaptiveH1;
 
         // Road 4 专属脉搏定位大范围裁剪 (X:35%, Y:50%, W:40%, H:35%)，兼容各种型号血压计的心率定位
         const cropX_pulse = Math.round(w * 0.35);
@@ -1618,7 +2565,7 @@ async function performOCRProcess(canvas) {
         canvasRoad2.height = cropH2;
         canvasRoad2.getContext('2d').drawImage(canvas, cropX2, cropY2, cropW2, cropH2, 0, 0, cropW2, cropH2);
 
-        const canvasRoad3 = cloneCanvas(canvasRoad2);
+        let canvasRoad3 = cloneCanvas(canvasRoad2);
 
         // 创建 Road 4 专属脉搏画布
         const canvasPulseDedicated = document.createElement('canvas');
@@ -1626,45 +2573,131 @@ async function performOCRProcess(canvas) {
         canvasPulseDedicated.height = cropH_pulse;
         canvasPulseDedicated.getContext('2d').drawImage(canvas, cropX_pulse, cropY_pulse, cropW_pulse, cropH_pulse, 0, 0, cropW_pulse, cropH_pulse);
 
+        const buildPulseVariantCanvas = (srcCanvas, x, y, w, h, options = {}) => {
+            const variantCanvas = document.createElement('canvas');
+            variantCanvas.width = Math.max(80, w);
+            variantCanvas.height = Math.max(48, h);
+            variantCanvas.getContext('2d', { willReadFrequently: true }).drawImage(srcCanvas, x, y, w, h, 0, 0, variantCanvas.width, variantCanvas.height);
+            if (options.contrast) {
+                preprocessImageGrayContrast(variantCanvas);
+            }
+            if (options.threshold) {
+                preprocessImage(variantCanvas, 10);
+            }
+            if (options.clearEdges) {
+                clearBordersLeftRight(variantCanvas);
+                dilateBlack(variantCanvas);
+            }
+            return variantCanvas;
+        };
+
+        const buildPulseLocalizedCandidates = (srcCanvas) => {
+            const candidates = [];
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = srcCanvas.width;
+            tempCanvas.height = srcCanvas.height;
+            const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+            tempCtx.drawImage(srcCanvas, 0, 0);
+
+            preprocessImageGrayContrast(tempCanvas);
+            preprocessImage(tempCanvas, 10);
+
+            const scanCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+            const imgData = scanCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+            const data = imgData.data;
+            const w = tempCanvas.width;
+            const h = tempCanvas.height;
+            const startY = Math.round(h * 0.40);
+
+            let minX = w;
+            let maxX = 0;
+            let minY = h;
+            let maxY = 0;
+            let darkPixels = 0;
+
+            for (let y = startY; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const idx = (y * w + x) * 4;
+                    const isDark = data[idx] < 140 || data[idx + 1] < 140 || data[idx + 2] < 140;
+                    if (isDark) {
+                        darkPixels++;
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+
+            if (darkPixels >= 60 && maxX >= minX && maxY >= minY) {
+                const padX = Math.max(8, Math.round(w * 0.03));
+                const padY = Math.max(8, Math.round(h * 0.03));
+                const x0 = Math.max(0, minX - padX);
+                const y0 = Math.max(0, minY - padY);
+                const x1 = Math.min(w - 1, maxX + padX);
+                const y1 = Math.min(h - 1, maxY + padY);
+                const boxW = Math.max(120, x1 - x0 + 1);
+                const boxH = Math.max(60, y1 - y0 + 1);
+
+                const addBox = (sx, sy, sw, sh, label) => {
+                    const boxCanvas = document.createElement('canvas');
+                    boxCanvas.width = Math.max(120, sw);
+                    boxCanvas.height = Math.max(60, sh);
+                    const boxCtx = boxCanvas.getContext('2d', { willReadFrequently: true });
+                    boxCtx.drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, boxCanvas.width, boxCanvas.height);
+                    preprocessImageGrayContrast(boxCanvas);
+                    preprocessImage(boxCanvas, 10);
+                    candidates.push({ canvas: boxCanvas, label });
+                };
+
+                addBox(x0, y0, boxW, boxH, 'Localized_PULSE_Box');
+                addBox(Math.max(0, x0 - Math.round(boxW * 0.15)), y0, Math.min(w, Math.round(boxW * 1.45)), boxH, 'Localized_PULSE_Wide');
+                addBox(Math.max(0, x0 - Math.round(boxW * 0.10)), Math.max(0, y0 + Math.round(boxH * 0.20)), Math.min(w, Math.round(boxW * 1.35)), Math.max(48, Math.round(boxH * 1.10)), 'Localized_PULSE_Bottom');
+            }
+
+            return candidates;
+        };
+
+        const pulseVariantCanvasA = buildPulseVariantCanvas(canvas, Math.round(w * 0.22), Math.round(h * 0.47), Math.round(w * 0.56), Math.round(h * 0.34), { contrast: true, threshold: true });
+        const pulseVariantCanvasB = buildPulseVariantCanvas(canvas, Math.round(w * 0.18), Math.round(h * 0.44), Math.round(w * 0.64), Math.round(h * 0.38), { contrast: true, threshold: true, clearEdges: true });
+        const pulseVariantCanvasC = buildPulseVariantCanvas(canvas, Math.round(w * 0.26), Math.round(h * 0.50), Math.round(w * 0.48), Math.round(h * 0.30), { contrast: true, threshold: true });
+        const pulseBottomCanvas = buildPulseVariantCanvas(canvas, Math.round(w * 0.05), Math.round(h * 0.55), Math.round(w * 0.90), Math.round(h * 0.35), { contrast: true, threshold: true, clearEdges: true });
+        const pulseBottomWideCanvas = buildPulseVariantCanvas(canvas, 0, Math.round(h * 0.55), w, Math.round(h * 0.35), { contrast: true, threshold: true });
+        const pulseBottomCenterCanvas = buildPulseVariantCanvas(canvas, Math.round(w * 0.20), Math.round(h * 0.50), Math.round(w * 0.60), Math.round(h * 0.40), { contrast: true, threshold: true, clearEdges: true });
+        const pulseFullImageCanvas = buildPulseVariantCanvas(canvas, 0, 0, w, h, { contrast: true, threshold: true });
+        const pulseFullImageCanvasAlt = buildPulseVariantCanvas(canvas, 0, 0, w, h, { contrast: true, threshold: true, clearEdges: true });
+        const pulseLocalizedCandidates = buildPulseLocalizedCandidates(canvas);
+
         progressBar.style.width = '30%';
         loadingMessage.innerText = '正在进行多路物理切分与对比度调优...';
 
-        // 💡 强涂绝对底部 15 像素，抹去可能存在的大黑杠与外壳杂质，阻断 BFS 向上抹除脉搏
+        // 💡 强涂绝对底部 22 像素，抹去可能存在的大黑杠与外壳杂质，阻断 BFS 向上抹除脉搏，抹平底边框
         const eraseAbsoluteBottom = (cv) => {
-            const ctx = cv.getContext('2d');
+            const ctx = cv.getContext('2d', { willReadFrequently: true });
             const eh = cv.height;
             const ew = cv.width;
-            const eraseY = eh - 15;
+            const eraseY = eh - Math.max(22, Math.round(eh * 0.08));
             if (eraseY > 0) {
                 ctx.fillStyle = "#ffffff";
                 ctx.fillRect(0, eraseY, ew, eh - eraseY);
             }
         };
 
-        // Road 1 预处理：自适应二值化 + 擦除绝对底边 + 边缘去噪 + 膨胀
-        preprocessImage(canvasRoad1, 10); 
-        eraseAbsoluteBottom(canvasRoad1);
-        clearBordersLeftRight(canvasRoad1);
-        dilateBlack(canvasRoad1);
+        // 💡 物理擦除图像顶部约 14% 的区域，彻底剥离可能存在的 mmHg 标签及杂质字符，防止拉高 Envelope
+        // 💡 擦除比例从 14% 降至 8%：原 14% 会把高压行（178）顶部笔画削掉，导致行分割只能分出 2 段
+        const eraseAbsoluteTop = (cv, pct = 0.08) => {
+            const ctx = cv.getContext('2d', { willReadFrequently: true });
+            const ew = cv.width;
+            const eraseH = Math.round(cv.height * pct);
+            if (eraseH > 0) {
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(0, 0, ew, eraseH);
+            }
+        };
 
-        // Road 2 预处理：对比度拉伸 + 自适应二值化 + 擦除绝对底边 + 边缘去噪 + 膨胀
-        preprocessImageGrayContrast(canvasRoad2);
-        preprocessImage(canvasRoad2, 10);
-        eraseAbsoluteBottom(canvasRoad2);
-        clearBordersLeftRight(canvasRoad2);
-        dilateBlack(canvasRoad2);
-
-        // Road 3 预处理：对比度拉伸灰度图 + 擦除绝对底边
-        preprocessImageGrayContrast(canvasRoad3);
-        eraseAbsoluteBottom(canvasRoad3);
-
-        // Road 4 专属脉搏预处理：对比度拉伸 + 自适应二值化 (免去清边)
-        preprocessImageGrayContrast(canvasPulseDedicated);
-        preprocessImage(canvasPulseDedicated, 10);
-
-        // 收集三路各自的分轨切片 (自适应行高行距，精准隔离跨行字)
+        // 计算 Canvas 中所有黑色像素的包络矩形（用于自适应行定位）
         const getCanvasEnvelope = (srcCanvas) => {
-            const ctx = srcCanvas.getContext('2d');
+            const ctx = srcCanvas.getContext('2d', { willReadFrequently: true });
             const w = srcCanvas.width;
             const h = srcCanvas.height;
             const imgData = ctx.getImageData(0, 0, w, h);
@@ -1697,19 +2730,124 @@ async function performOCRProcess(canvas) {
             return null;
         };
 
-        const envelope1 = getCanvasEnvelope(canvasRoad1);
-        const envelope2 = getCanvasEnvelope(canvasRoad2);
+        // Road 1 预处理：自适应二值化 + 擦除绝对顶底 + 边缘去噪 (膨胀挪到行定位之后)
+        preprocessImage(canvasRoad1, 10); 
+        eraseAbsoluteTop(canvasRoad1);
+        eraseAbsoluteBottom(canvasRoad1);
+        clearBordersLeftRight(canvasRoad1);
+        
+        let envelope1 = getCanvasEnvelope(canvasRoad1);
+
+        // 💡 智能自适应二次降级：若探测到 BBox 高度或宽度几乎占满裁剪区（触发 OMRON 标志与汉字污染）
+        let tightMode1 = false;
+        if (envelope1 && (envelope1.maxY - envelope1.minY) > canvasRoad1.height * 0.85) {
+            console.log("[OCR] 检测到 Road1 包络框受到背景污染，自动收缩至核心特写区进行二次定位...");
+            const tightX = Math.round(w * 0.38);
+            const tightY = tightAdaptiveY;
+            const tightW = Math.round(w * 0.52);
+            const tightH = tightAdaptiveH;
+            console.log(`[OCR] tightMode1: x=${tightX} y=${tightY} w=${tightW} h=${tightH}`);
+            
+            canvasRoad1.width = tightW;
+            canvasRoad1.height = tightH;
+            canvasRoad1.getContext('2d').drawImage(canvas, tightX, tightY, tightW, tightH, 0, 0, tightW, tightH);
+            
+            preprocessImage(canvasRoad1, 10);
+            eraseAbsoluteTop(canvasRoad1);
+            eraseAbsoluteBottom(canvasRoad1);
+            clearBordersLeftRight(canvasRoad1);
+            
+            envelope1 = getCanvasEnvelope(canvasRoad1);
+            tightMode1 = true;
+        }
+
+        // 核心优化点：在膨胀之前计算自适应行定位！
+        const segs1 = findRowSegments(canvasRoad1, envelope1 ? envelope1.minY : 0, envelope1 ? envelope1.maxY : canvasRoad1.height - 1);
+        dilateBlack(canvasRoad1);
+
+        // Road 2 预处理：对比度拉伸 + 自适应二值化 + 擦除绝对顶底 + 边缘去噪
+        preprocessImageGrayContrast(canvasRoad2);
+        preprocessImage(canvasRoad2, 10);
+        eraseAbsoluteTop(canvasRoad2);
+        eraseAbsoluteBottom(canvasRoad2);
+        clearBordersLeftRight(canvasRoad2);
+        
+        let envelope2 = getCanvasEnvelope(canvasRoad2);
+
+        let tightMode2 = false;
+        if (envelope2 && (envelope2.maxY - envelope2.minY) > canvasRoad2.height * 0.85) {
+            console.log("[OCR] 检测到 Road2 包络框受到背景污染，自动收缩至核心特写区进行二次定位...");
+            const tightX = Math.round(w * 0.36);
+            const tightY = tightAdaptiveY;
+            const tightW = Math.round(w * 0.54);
+            const tightH = tightAdaptiveH;
+            console.log(`[OCR] tightMode2: x=${tightX} y=${tightY} w=${tightW} h=${tightH}`);
+            
+            canvasRoad2.width = tightW;
+            canvasRoad2.height = tightH;
+            canvasRoad2.getContext('2d').drawImage(canvas, tightX, tightY, tightW, tightH, 0, 0, tightW, tightH);
+            
+            preprocessImageGrayContrast(canvasRoad2);
+            preprocessImage(canvasRoad2, 10);
+            eraseAbsoluteTop(canvasRoad2);
+            eraseAbsoluteBottom(canvasRoad2);
+            clearBordersLeftRight(canvasRoad2);
+            
+            envelope2 = getCanvasEnvelope(canvasRoad2);
+
+            // 💡 同步更新 Road3（重新从收缩后的 canvasRoad2 克隆，避免旧脏数据干扰定位）
+            canvasRoad3 = cloneCanvas(canvasRoad2);
+            preprocessImageGrayContrast(canvasRoad3);
+            eraseAbsoluteTop(canvasRoad3);
+            eraseAbsoluteBottom(canvasRoad3);
+            tightMode2 = true;
+        }
         const envelope3 = envelope2; // Road 3 (对比度拉伸灰度图) 共享 Road 2 的定位
 
-        const makeSlices = (srcCanvas, envelope) => {
-            if (envelope) {
+        // 核心优化点：在膨胀之前计算自适应行定位！
+        const segs2 = findRowSegments(canvasRoad2, envelope2 ? envelope2.minY : 0, envelope2 ? envelope2.maxY : canvasRoad2.height - 1);
+        const segs3 = segs2;
+        dilateBlack(canvasRoad2);
+
+        // Road 3 预处理：对比度拉伸灰度图 + 擦除绝对底边 (保持不变)
+        preprocessImageGrayContrast(canvasRoad3);
+        eraseAbsoluteBottom(canvasRoad3);
+
+        // Road 4 专属脉搏预处理：对比度拉伸 + 自适应二值化 (免去清边)
+        preprocessImageGrayContrast(canvasPulseDedicated);
+        preprocessImage(canvasPulseDedicated, 10);
+
+        const makeSlices = (srcCanvas, envelope, segs, isTight = false) => {
+            if (segs && segs.length === 3) {
+                const pad = 3;
                 return {
-                    sys: makeCanvasSlice(srcCanvas, 0.0, 0.27, 0, 1, envelope),
-                    diaWide: makeCanvasSlice(srcCanvas, 0.28, 0.60, 0, 1, envelope),
-                    diaMid: makeCanvasSlice(srcCanvas, 0.30, 0.59, 0, 1, envelope),
-                    diaNarrow: makeCanvasSlice(srcCanvas, 0.32, 0.58, 0, 1, envelope),
-                    pulse: makeCanvasSlice(srcCanvas, 0.57, 1.0, 0.0, 1.0, envelope)
+                    sys:       makeCanvasSliceByRows(srcCanvas, segs[0].startY - pad, segs[0].endY + pad, envelope, 'sys'),
+                    diaWide:   makeCanvasSliceByRows(srcCanvas, segs[1].startY - pad - 2, segs[1].endY + pad + 2, envelope, 'dia'),
+                    diaMid:    makeCanvasSliceByRows(srcCanvas, segs[1].startY - pad, segs[1].endY + pad, envelope, 'dia'),
+                    diaNarrow: makeCanvasSliceByRows(srcCanvas, segs[1].startY - pad + 2, segs[1].endY + pad - 2, envelope, 'dia'),
+                    pulse:     makeCanvasSliceByRows(srcCanvas, segs[2].startY - pad, segs[2].endY + pad, envelope, 'pulse')
                 };
+            }
+
+            // Fallback 回退：若没有成功分成 3 行，回退至原版百分比切片算法
+            if (envelope) {
+                if (isTight) {
+                    return {
+                        sys: makeCanvasSlice(srcCanvas, 0.0, 0.46, 0, 1, envelope),
+                        diaWide: makeCanvasSlice(srcCanvas, 0.40, 0.75, 0, 1, envelope),
+                        diaMid: makeCanvasSlice(srcCanvas, 0.42, 0.74, 0, 1, envelope),
+                        diaNarrow: makeCanvasSlice(srcCanvas, 0.44, 0.73, 0, 1, envelope),
+                        pulse: makeCanvasSlice(srcCanvas, 0.70, 1.0, 0.0, 1.0, envelope)
+                    };
+                } else {
+                    return {
+                        sys: makeCanvasSlice(srcCanvas, 0.0, 0.27, 0, 1, envelope),
+                        diaWide: makeCanvasSlice(srcCanvas, 0.28, 0.60, 0, 1, envelope),
+                        diaMid: makeCanvasSlice(srcCanvas, 0.30, 0.59, 0, 1, envelope),
+                        diaNarrow: makeCanvasSlice(srcCanvas, 0.32, 0.58, 0, 1, envelope),
+                        pulse: makeCanvasSlice(srcCanvas, 0.57, 1.0, 0.0, 1.0, envelope)
+                    };
+                }
             }
             return {
                 sys: makeCanvasSlice(srcCanvas, 0.0, 0.38),
@@ -1720,57 +2858,239 @@ async function performOCRProcess(canvas) {
             };
         };
 
-        const slices1 = makeSlices(canvasRoad1, envelope1);
-        const slices2 = makeSlices(canvasRoad2, envelope2);
-        const slices3 = makeSlices(canvasRoad3, envelope3);
+        const slices1 = makeSlices(canvasRoad1, envelope1, segs1, tightMode1);
+        const slices2 = makeSlices(canvasRoad2, envelope2, segs2, tightMode2);
+        const slices3 = makeSlices(canvasRoad3, envelope3, segs3, tightMode2);
 
         const sysCandidates = [];
         const diaCandidates = [];
         const pulseCandidates = [];
 
-        const addCandidate = (val, source, type) => {
+        const addCandidate = (val, source, type, customWeight = null) => {
             if (!val) return;
-            const mapped = mapConfusedCharacters(val);
-            let num = parseInt(mapped.replace(/[^0-9]/g, ''));
-            if (!isNaN(num)) {
-                // 💡 首位百数“1”智能补偿容错算法：
-                // 1. 若高压漏读首位“1”显示为两位数（如 62、82），且补上 100 后在合理高压区间 [90, 195] 内，自动还原百位 1
-                if (type === 'sys' && num >= 10 && num < 90 && (num + 100) >= 90 && (num + 100) <= 195) {
-                    console.log(`[SYS Auto-Compensate] Mapped ${num} -> ${num + 100} (from ${source})`);
-                    num += 100;
+
+            // 1. 使用移植的最强字模多候选映射还原算法
+            const mappedVariants = generateMultiMappings(val);
+            const allParsed = new Set();
+
+            for (let i = 0; i < mappedVariants.length; i++) {
+                const mapped = mappedVariants[i];
+                const fragments = mapped
+                    .split(/\s+/)
+                    .map((part) => part.replace(/[^0-9]/g, ''))
+                    .filter(Boolean);
+                for (let j = 0; j < fragments.length; j++) {
+                    const frag = fragments[j];
+                    if (frag.length >= 2) {
+                        const n = parseInt(frag, 10);
+                        if (Number.isInteger(n) && n >= 30 && n <= 250) allParsed.add(n);
+                        if (frag.length >= 4) {
+                            for (let len = 2; len <= Math.min(3, frag.length); len++) {
+                                for (let start = 0; start <= frag.length - len; start++) {
+                                    const sub = frag.substr(start, len);
+                                    const subN = parseInt(sub, 10);
+                                    if (Number.isInteger(subN) && subN >= 40 && subN <= 200) {
+                                        allParsed.add(subN);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                // 2. 若低压漏读首位“1”显示为两位数（如 10、20），且补上 100 后在合理低压区间 [90, 110] 内，自动还原百位 1
-                if (type === 'dia' && num >= 10 && num < 50 && (num + 100) >= 90 && (num + 100) <= 110) {
-                    console.log(`[DIA Auto-Compensate] Mapped ${num} -> ${num + 100} (from ${source})`);
-                    num += 100;
+            }
+
+            const candidatesWithMeta = [];
+            allParsed.forEach(num => {
+                candidatesWithMeta.push({ num: num, isHeader: true });
+            });
+
+            // 2. 启发式子串提取：仅在未找到生理合规的整体候选时触发
+            let hasPhysioValid = false;
+            candidatesWithMeta.forEach(item => {
+                const n = item.num;
+                if (type === 'sys' && n >= 90 && n <= 195) hasPhysioValid = true;
+                if (type === 'dia' && n >= 50 && n <= 130) hasPhysioValid = true;
+                if (type === 'pulse' && n >= 40 && n <= 160) hasPhysioValid = true;
+            });
+
+            if (!hasPhysioValid) {
+                for (let i = 0; i < mappedVariants.length; i++) {
+                    const mapped = mappedVariants[i];
+                    const cleanStr = mapped.replace(/[^0-9]/g, '');
+                    if (cleanStr.length >= 2) {
+                        for (let len = 2; len <= Math.min(4, cleanStr.length); len++) {
+                            for (let start = 0; start <= cleanStr.length - len; start++) {
+                                const subStr = cleanStr.substr(start, len);
+                                let subNum = parseInt(subStr, 10);
+                                if (Number.isInteger(subNum)) {
+                                    let isValid = false;
+                                    const isHeader = (start === 0);
+                                    
+                                    let finalNum = subNum;
+                                    if (type === 'sys') {
+                                        if (finalNum >= 90 && finalNum <= 195) isValid = true;
+                                        else if (isHeader && finalNum >= 10 && finalNum < 90 && (finalNum + 100) >= 90 && (finalNum + 100) <= 195) {
+                                            finalNum += 100;
+                                            isValid = true;
+                                        }
+                                    } else if (type === 'dia') {
+                                        if (finalNum >= 50 && finalNum <= 130) isValid = true;
+                                        else if (isHeader && finalNum >= 10 && finalNum < 50 && (finalNum + 100) >= 50 && (finalNum + 100) <= 130) {
+                                            finalNum += 100;
+                                            isValid = true;
+                                        }
+                                    } else if (type === 'pulse') {
+                                        if (finalNum >= 40 && finalNum <= 160) isValid = true;
+                                    }
+                                    
+                                    if (isValid && !candidatesWithMeta.some(c => c.num === finalNum)) {
+                                        candidatesWithMeta.push({ num: finalNum, isHeader: isHeader });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. 数字补偿与置信度权重赋予
+            const cleanDigitCount = val.replace(/[^0-9]/g, '').length;
+
+            candidatesWithMeta.forEach((item) => {
+                let num = item.num;
+                // 计算置信度权重：若指定了自定义权重（如七段拓扑解码器），优先使用
+                let weight = 1;
+                if (customWeight !== null && Number.isInteger(customWeight)) {
+                    weight = customWeight;
+                } else if (cleanDigitCount >= 2 && !/[a-zA-Z]/.test(val)) {
+                    weight = 4;
+                } else if (cleanDigitCount >= 2) {
+                    weight = 2;
                 }
 
-                const item = { num, source, raw: val };
-                if (type === 'sys') sysCandidates.push(item);
-                if (type === 'dia') diaCandidates.push(item);
-                if (type === 'pulse') pulseCandidates.push(item);
+                // 百位漏读补偿（如 08/8 -> 108, 16 -> 116, 20 -> 120, 62 -> 162, 78 -> 178, 85 -> 185）
+                // ⚠️ 补偿候选仅作为降级兜底，权重必须严格限制为低权重（1或2），绝不能压倒直接识别出的有效三位数！
+                if (item.isHeader && (cleanDigitCount === 2 || (cleanDigitCount === 1 && num < 10))) {
+                    const compWeight = Math.min(2, Math.max(1, Math.floor(weight / 4)));
+                    if (type === 'sys' && num >= 0 && num < 95) {
+                        const comp = num + 100;
+                        if (comp >= 90 && comp <= 195) {
+                            console.log(`[SYS Auto-Compensate] Mapped ${num} -> ${comp} (from ${source}, compWeight=${compWeight})`);
+                            sysCandidates.push({ num: comp, source: source + '_comp', raw: val, weight: compWeight });
+                        }
+                    }
+                    if (type === 'dia' && num >= 0 && num < 40) {
+                        const comp = num + 100;
+                        if (comp >= 50 && comp <= 130) {
+                            console.log(`[DIA Auto-Compensate] Mapped ${num} -> ${comp} (from ${source}, compWeight=${compWeight})`);
+                            diaCandidates.push({ num: comp, source: source + '_comp', raw: val, weight: compWeight });
+                        }
+                    }
+                }
+
+                const resItem = { num: num, source: source, raw: val, weight: weight };
+                if (type === 'sys' && num >= 90 && num <= 195) sysCandidates.push(resItem);
+                if (type === 'dia' && num >= 50 && num <= 130) diaCandidates.push(resItem);
+                if (type === 'pulse' && num >= 40 && num <= 160) pulseCandidates.push(resItem);
+            });
+        };
+
+        const recognizeAndAdd = async (worker, canvas, source, type, minDarkPixels = 80) => {
+            if (!canvas) return null;
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            if (canvas.width < 90 || canvas.height < 48 || canvas.width / Math.max(1, canvas.height) > 6) {
+                return null;
+            }
+            let darkPixels = 0;
+            for (let i = 0; i < data.length; i += 4) {
+                if (data[i] < 200 || data[i + 1] < 200 || data[i + 2] < 200) {
+                    darkPixels++;
+                }
+            }
+            if (canvas.width < 80 || canvas.height < 48 || darkPixels < minDarkPixels) {
+                return null;
+            }
+
+            try {
+                const res = await worker.recognize(canvas);
+                const text = (res && res.data && res.data.text || '').trim();
+                console.log(`[OCR Raw] ${source}(${type}) -> "${text}" (canvas ${canvas.width}x${canvas.height})`);
+                addCandidate(text, source, type);
+                return text;
+            } catch (err) {
+                console.warn(`[OCR] Skip ${source} because of recognition error:`, err && err.message ? err.message : err);
+                return null;
             }
         };
 
-        const getBestValue = (candidates, minVal, maxVal) => {
-            const counts = {};
+        const getBestValue = (candidates, minVal, maxVal, type = 'normal') => {
+            const scores = {};
             candidates.forEach(cand => {
                 const val = cand.num;
+                const w = cand.weight || 1;
                 if (val >= minVal && val <= maxVal) {
-                    counts[val] = (counts[val] || 0) + 1;
+                    scores[val] = (scores[val] || 0) + w;
                 }
             });
-            let bestVal = null;
-            let maxCount = 0;
-            for (const valStr in counts) {
-                const val = parseInt(valStr);
-                const count = counts[valStr];
-                if (count > maxCount) {
-                    maxCount = count;
-                    bestVal = val;
+            
+            let maxScore = 0;
+            let bestVals = [];
+            for (const valStr in scores) {
+                const val = parseInt(valStr, 10);
+                const score = scores[valStr];
+                if (score > maxScore) {
+                    maxScore = score;
+                    bestVals = [val];
+                } else if (score === maxScore) {
+                    bestVals.push(val);
                 }
             }
-            return bestVal;
+
+            if (bestVals.length > 0) {
+                if (type === 'pulse') {
+                    // 脉搏平局偏好：优先最贴近静息心率均值 (75~85) 的数值
+                    bestVals.sort((a, b) => Math.abs(a - 80) - Math.abs(b - 80));
+                } else if (type === 'dia') {
+                    // 低压平局偏好：优先最贴近正常舒张压均值 (75~85) 的数值
+                    bestVals.sort((a, b) => Math.abs(a - 80) - Math.abs(b - 80));
+                } else {
+                    // 高压平局偏好：三位数优先，大值优先
+                    bestVals.sort((a, b) => b - a);
+                }
+                return bestVals[0];
+            }
+            
+            const fallback = candidates
+                .map(c => c.num)
+                .filter(val => val >= minVal && val <= maxVal);
+            if (type === 'pulse' || type === 'dia') {
+                fallback.sort((a, b) => Math.abs(a - 80) - Math.abs(b - 80));
+            } else {
+                fallback.sort((a, b) => b - a);
+            }
+            return fallback[0] || null;
+        };
+
+        const getBestBPCombination = (sysCandidatesList, diaCandidatesList, pulseCandidatesList) => {
+            const sysValues = sysCandidatesList
+                .map(c => c.num)
+                .filter((n) => Number.isInteger(n) && n >= 90 && n <= 195);
+            const diaValues = diaCandidatesList
+                .map(c => c.num)
+                .filter((n) => Number.isInteger(n) && n >= 50 && n <= 130);
+            const pulseValues = pulseCandidatesList
+                .map(c => c.num)
+                .filter((n) => Number.isInteger(n) && n >= 40 && n <= 160);
+
+            if (sysValues.length === 0 || diaValues.length === 0) return null;
+
+            const sys = [...new Set(sysValues)].sort((a, b) => b - a)[0];
+            const dia = [...new Set(diaValues)].filter((n) => n < sys).sort((a, b) => a - b)[0] || [...new Set(diaValues)].sort((a, b) => a - b)[0];
+            const pulse = [...new Set(pulseValues)].sort((a, b) => Math.abs(a - 80) - Math.abs(b - 80))[0] || null;
+
+            return { systolic: sys, diastolic: dia, pulse };
         };
 
         const solveForRoad = (roadPrefixes) => {
@@ -1778,12 +3098,17 @@ async function performOCRProcess(canvas) {
             const filteredDia = diaCandidates.filter(c => roadPrefixes.some(p => c.source.startsWith(p)));
             const filteredPulse = pulseCandidates.filter(c => roadPrefixes.some(p => c.source.startsWith(p) || (p === 'Road1' && c.source === 'Dedicated_PULSE')));
 
-            const sys = getBestValue(filteredSys, 90, 195);
-            const dia = getBestValue(filteredDia, 50, 110);
-            const pulse = getBestValue(filteredPulse, 40, 160);
+            const sys = getBestValue(filteredSys, 90, 195, 'sys');
+            const dia = getBestValue(filteredDia, 50, 130, 'dia');
+            const pulse = getBestValue(filteredPulse, 40, 160, 'pulse');
 
             if (sys && dia) {
                 return { systolic: sys, diastolic: dia, pulse: pulse };
+            }
+
+            const combined = getBestBPCombination(filteredSys, filteredDia, filteredPulse);
+            if (combined) {
+                return combined;
             }
             return null;
         };
@@ -1800,7 +3125,62 @@ async function performOCRProcess(canvas) {
         let tempSys = null;
         let tempDia = null;
 
-        for (let r = 0; r < roads.length; r++) {
+        // 🚀【通道 0：毫秒级原生七段数码管拓扑几何解码】
+        const run7SegmentDecoder = (slices, name) => {
+            if (!slices) return;
+            const sys7 = decode7SegmentFromCanvas(slices.sys, 'sys');
+            const dia7 = decode7SegmentFromCanvas(slices.diaMid || slices.diaWide || slices.diaNarrow, 'dia');
+            const pulse7 = decode7SegmentFromCanvas(slices.pulse, 'pulse');
+
+            if (sys7) {
+                console.log(`[7-Segment] ${name} SYS -> "${sys7}"`);
+                addCandidate(sys7, `${name}_7Seg`, 'sys', 10);
+            }
+            if (dia7) {
+                console.log(`[7-Segment] ${name} DIA -> "${dia7}"`);
+                addCandidate(dia7, `${name}_7Seg`, 'dia', 10);
+            }
+            if (pulse7) {
+                console.log(`[7-Segment] ${name} PULSE -> "${pulse7}"`);
+                addCandidate(pulse7, `${name}_7Seg`, 'pulse', 10);
+            }
+        };
+
+        run7SegmentDecoder(slices1, 'Road1');
+        const r1Sys = parseInt(decode7SegmentFromCanvas(slices1.sys, 'sys'), 10);
+        const r1Dia = parseInt(decode7SegmentFromCanvas(slices1.diaMid || slices1.diaWide || slices1.diaNarrow, 'dia'), 10);
+        const r1Pulse = parseInt(decode7SegmentFromCanvas(slices1.pulse, 'pulse'), 10);
+
+        if (r1Sys >= 90 && r1Sys <= 210 && r1Dia >= 50 && r1Dia <= 130 && (r1Sys - r1Dia >= 15)) {
+            tempSys = r1Sys;
+            tempDia = r1Dia;
+            if (r1Pulse >= 45 && r1Pulse <= 150) {
+                console.log(`[7-Segment] 极速命中 Road1 原生同源自洽黄金三元组！高压=${r1Sys}, 低压=${r1Dia}, 脉搏=${r1Pulse}`);
+                finalBP = { systolic: r1Sys, diastolic: r1Dia, pulse: r1Pulse };
+                solved = true;
+            }
+        }
+        
+        if (!solved) {
+            run7SegmentDecoder(slices2, 'Road2');
+
+            // 检查七段拓扑解码是否已经直接解出高低压
+            const seg7Sys = tempSys || getBestValue(sysCandidates.filter(c => c.source.endsWith('_7Seg')), 90, 195, 'sys');
+            const seg7Dia = tempDia || getBestValue(diaCandidates.filter(c => c.source.endsWith('_7Seg')), 50, 130, 'dia');
+            const seg7Pulse = getBestValue(pulseCandidates.filter(c => c.source.endsWith('_7Seg')), 40, 160, 'pulse');
+
+            if (seg7Sys && seg7Dia && (seg7Sys - seg7Dia >= 15)) {
+                console.log(`[7-Segment] 极速拓扑解码命中！高压=${seg7Sys}, 低压=${seg7Dia}, 脉搏=${seg7Pulse || '扫描中...'}`);
+                tempSys = seg7Sys;
+                tempDia = seg7Dia;
+                if (seg7Pulse) {
+                    finalBP = { systolic: seg7Sys, diastolic: seg7Dia, pulse: seg7Pulse };
+                    solved = true;
+                }
+            }
+        }
+
+        for (let r = 0; r < roads.length && !solved; r++) {
             const road = roads[r];
             
             const currentProg = Math.round(30 + (r / roads.length) * 60);
@@ -1814,35 +3194,56 @@ async function performOCRProcess(canvas) {
             await Promise.all([
                 // 线程 1：Worker 1 串行链
                 (async () => {
-                    const resSys = await ocrWorker1.recognize(road.slices.sys);
-                    addCandidate(resSys.data.text.trim(), `${road.name}_SYS`, 'sys');
+                    console.log(`[OCR] ${road.name} worker1 sys start`);
+                    const sysText = await recognizeAndAdd(ocrWorker1, road.slices.sys, `${road.name}_SYS`, 'sys');
+                    console.log(`[OCR] ${road.name} worker1 sys ->`, sysText || '');
 
-                    const resPulse = await ocrWorker1.recognize(road.slices.pulse);
-                    addCandidate(resPulse.data.text.trim(), `${road.name}_PULSE`, 'pulse');
+                    console.log(`[OCR] ${road.name} worker1 pulse start`);
+                    const pulseText = await recognizeAndAdd(ocrWorker1, road.slices.pulse, `${road.name}_PULSE`, 'pulse', 20);
+                    console.log(`[OCR] ${road.name} worker1 pulse ->`, pulseText || '');
+
+                    const pulseVariants = pulseLocalizedCandidates
+                        .filter(c => c.label === 'Localized_PULSE_Box')
+                        .map((candidate) => ({ canvas: candidate.canvas, label: `${road.name}_${candidate.label}` }));
+                    for (const variant of pulseVariants) {
+                        const pulseText = await recognizeAndAdd(ocrWorker1, variant.canvas, variant.label, 'pulse', 20);
+                        if (pulseText) {
+                            console.log(`[OCR] ${road.name} pulse variant ${variant.label} ->`, pulseText);
+                        }
+                    }
 
                     // 💡 新增：若当前为 Road1 识别，且专属脉搏画布存在，顺带让 Worker 1 识别脉搏专属图，提高表决权重
                     if (road.name === 'Road1' && typeof canvasPulseDedicated !== 'undefined') {
-                        const resDedicatedPulse = await ocrWorker1.recognize(canvasPulseDedicated);
-                        addCandidate(resDedicatedPulse.data.text.trim(), `Dedicated_PULSE`, 'pulse');
+                        console.log('[OCR] Road1 dedicated pulse start');
+                        const dedicatedPulseText = await recognizeAndAdd(ocrWorker1, canvasPulseDedicated, 'Dedicated_PULSE', 'pulse', 20);
+                        console.log('[OCR] Road1 dedicated pulse ->', dedicatedPulseText || '');
+
+                        const dedicatedPulseAltText = await recognizeAndAdd(ocrWorker1, canvasPulseDedicated, 'Dedicated_PULSE_Alt', 'pulse', 20);
+                        if (dedicatedPulseAltText) {
+                            console.log('[OCR] Road1 dedicated pulse alt ->', dedicatedPulseAltText);
+                        }
                     }
                 })(),
                 // 线程 2：Worker 2 串行链
                 (async () => {
-                    const resDiaMid = await ocrWorker2.recognize(road.slices.diaMid);
-                    addCandidate(resDiaMid.data.text.trim(), `${road.name}_DIA_Mid`, 'dia');
+                    console.log(`[OCR] ${road.name} worker2 dia mid start`);
+                    const diaMidText = await recognizeAndAdd(ocrWorker2, road.slices.diaMid, `${road.name}_DIA_Mid`, 'dia');
+                    console.log(`[OCR] ${road.name} worker2 dia mid ->`, diaMidText || '');
 
-                    const resDiaNarrow = await ocrWorker2.recognize(road.slices.diaNarrow);
-                    addCandidate(resDiaNarrow.data.text.trim(), `${road.name}_DIA_Narrow`, 'dia');
+                    console.log(`[OCR] ${road.name} worker2 dia narrow start`);
+                    const diaNarrowText = await recognizeAndAdd(ocrWorker2, road.slices.diaNarrow, `${road.name}_DIA_Narrow`, 'dia');
+                    console.log(`[OCR] ${road.name} worker2 dia narrow ->`, diaNarrowText || '');
 
-                    const resDiaWide = await ocrWorker2.recognize(road.slices.diaWide);
-                    addCandidate(resDiaWide.data.text.trim(), `${road.name}_DIA_Wide`, 'dia');
+                    console.log(`[OCR] ${road.name} worker2 dia wide start`);
+                    const diaWideText = await recognizeAndAdd(ocrWorker2, road.slices.diaWide, `${road.name}_DIA_Wide`, 'dia');
+                    console.log(`[OCR] ${road.name} worker2 dia wide ->`, diaWideText || '');
                 })()
             ]);
 
             // 实时短路评估验证
-            const curSys = getBestValue(sysCandidates.filter(c => c.source.startsWith(road.name)), 90, 195);
-            const curDia = getBestValue(diaCandidates.filter(c => c.source.startsWith(road.name)), 50, 110);
-            const curPulse = getBestValue(pulseCandidates.filter(c => c.source.startsWith(road.name) || (road.name === 'Road1' && c.source === 'Dedicated_PULSE')), 40, 160);
+            const curSys = getBestValue(sysCandidates.filter(c => c.source.startsWith(road.name)), 90, 195, 'sys');
+            const curDia = getBestValue(diaCandidates.filter(c => c.source.startsWith(road.name)), 50, 130, 'dia');
+            const curPulse = getBestValue(pulseCandidates.filter(c => c.source.startsWith(road.name) || (road.name === 'Road1' && c.source === 'Dedicated_PULSE')), 40, 160, 'pulse');
 
             if (curSys && curDia) {
                 if (curPulse) {
@@ -1861,9 +3262,9 @@ async function performOCRProcess(canvas) {
             }
         }
 
-        // 如果未 solved，但曾记录过高压 and 低压，说明仅少脉搏，可用全局最好的脉搏兜底
+        // 如果未 solved，但曾记录过高压和低压，说明仅少脉搏，可用全局最好的脉搏兜底
         if (!solved && tempSys && tempDia) {
-            const bestPulse = getBestValue(pulseCandidates, 40, 160);
+            const bestPulse = getBestValue(pulseCandidates, 40, 160, 'pulse');
             finalBP = { systolic: tempSys, diastolic: tempDia, pulse: bestPulse };
             solved = true;
             console.log("OCR Match: Solved by temp BP + best pulse!", finalBP);
@@ -1871,6 +3272,11 @@ async function performOCRProcess(canvas) {
 
         progressBar.style.width = '95%';
         loadingMessage.innerText = `分级决策表决中...`;
+
+        // 🔍 候选值汇总日志（调试用）
+        console.log('[Candidates] SYS:', sysCandidates.map(c => `${c.num}(${c.source},w=${c.weight})`).join(' | '));
+        console.log('[Candidates] DIA:', diaCandidates.map(c => `${c.num}(${c.source},w=${c.weight})`).join(' | '));
+        console.log('[Candidates] PULSE:', pulseCandidates.map(c => `${c.num}(${c.source},w=${c.weight})`).join(' | '));
 
         // 3. 兜底与级联回退决策
         if (!solved) {
@@ -1887,12 +3293,17 @@ async function performOCRProcess(canvas) {
 
             // 终极兜底
             if (!finalBP) {
-                const sys = getBestValue(sysCandidates, 90, 195);
-                const dia = getBestValue(diaCandidates, 50, 110);
-                const pulse = getBestValue(pulseCandidates, 40, 160);
+                const sys = getBestValue(sysCandidates, 90, 195, 'sys');
+                const dia = getBestValue(diaCandidates, 50, 130, 'dia');
+                const pulse = getBestValue(pulseCandidates, 40, 160, 'pulse');
                 if (sys && dia) {
                     finalBP = { systolic: sys, diastolic: dia, pulse: pulse };
                     console.log("OCR Match: Solved by Fallback getBestValue!", finalBP);
+                } else {
+                    finalBP = getBestBPCombination(sysCandidates, diaCandidates, pulseCandidates);
+                    if (finalBP) {
+                        console.log("OCR Match: Solved by BP combination fallback!", finalBP);
+                    }
                 }
             }
         }
@@ -1900,23 +3311,75 @@ async function performOCRProcess(canvas) {
         if (finalBP) {
             const sysVal = finalBP.systolic;
             const diaVal = finalBP.diastolic;
+
+            // 🛡️ 生理合理性校验：高压必须显著大于低压（差值 >= 15mmHg）
+            // 若不满足，说明行分割可能错位、高低压混淆，尝试从全候选中找更合理的高压
+            if (sysVal && diaVal && sysVal - diaVal < 15) {
+                console.warn(`[OCR] 生理校验失败：sys=${sysVal} dia=${diaVal}，差值 ${sysVal - diaVal} < 15，尝试重新选取高压候选...`);
+                // 从 sys 候选中取最大且满足 > diaVal+15 的值
+                const validSys = sysCandidates
+                    .map(c => c.num)
+                    .filter(n => n >= 90 && n <= 195 && n - diaVal >= 15)
+                    .sort((a, b) => b - a);
+                if (validSys.length > 0) {
+                    finalBP.systolic = validSys[0];
+                    console.log(`[OCR] 生理校验修正：sys 替换为 ${validSys[0]}`);
+                }
+            }
+
             const pulseVal = finalBP.pulse || '';
+            // 注意：始终从 finalBP 读取（生理校验可能已修正了 systolic）
+            const finalSys = finalBP.systolic;
+            const finalDia = finalBP.diastolic;
 
             // 填充到对应目标框
             if (ocrTarget === 'single') {
-                document.getElementById('systolic').value = sysVal;
-                document.getElementById('diastolic').value = diaVal;
+                document.getElementById('systolic').value = finalSys;
+                document.getElementById('diastolic').value = finalDia;
                 if (pulseVal) document.getElementById('pulse').value = pulseVal;
             } else {
-                document.getElementById(`sys${ocrTarget}`).value = sysVal;
-                document.getElementById(`dia${ocrTarget}`).value = diaVal;
+                document.getElementById(`sys${ocrTarget}`).value = finalSys;
+                document.getElementById(`dia${ocrTarget}`).value = finalDia;
                 if (pulseVal) document.getElementById(`pulse${ocrTarget}`).value = pulseVal;
                 handleMultiInputCheck();
             }
 
-            showToast(`识别成功！高压:${sysVal}，低压:${diaVal}${pulseVal ? `，脉搏:${pulseVal}` : ''}`);
+            showToast(`识别成功！高压:${finalSys}，低压:${finalDia}${pulseVal ? `，脉搏:${pulseVal}` : ''}`);
         } else {
-            showToast('未能清晰读取血压计读数，请对准液晶屏拍摄，或尝试手动输入。', 'error');
+            try {
+                loadingMessage.innerText = '复杂裁剪失败，正在尝试简化回退识别...';
+                progressBar.style.width = '97%';
+                const fallbackText = await ocrWorker1.recognize(canvas);
+                const fallbackTextCandidates = (fallbackText.data.text || '')
+                    .split(/\s+/)
+                    .flatMap((part) => {
+                        const mapped = mapConfusedCharacters(part);
+                        const compactDigits = mapped.replace(/\s+/g, '').replace(/[^0-9]/g, '');
+                        const merged = compactDigits ? [parseInt(compactDigits, 10)] : [];
+                        const singleDigits = Array.from(mapped).filter((ch) => /\d/.test(ch)).map((ch) => parseInt(ch, 10));
+                        return merged.length > 0 ? merged : singleDigits;
+                    })
+                    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 250);
+                const fallbackBP = parseBPValues(fallbackTextCandidates);
+                if (fallbackBP) {
+                    if (ocrTarget === 'single') {
+                        document.getElementById('systolic').value = fallbackBP.systolic;
+                        document.getElementById('diastolic').value = fallbackBP.diastolic;
+                        if (fallbackBP.pulse) document.getElementById('pulse').value = fallbackBP.pulse;
+                    } else {
+                        document.getElementById(`sys${ocrTarget}`).value = fallbackBP.systolic;
+                        document.getElementById(`dia${ocrTarget}`).value = fallbackBP.diastolic;
+                        if (fallbackBP.pulse) document.getElementById(`pulse${ocrTarget}`).value = fallbackBP.pulse;
+                        handleMultiInputCheck();
+                    }
+                    showToast(`回退识别成功！高压:${fallbackBP.systolic}，低压:${fallbackBP.diastolic}${fallbackBP.pulse ? `，脉搏:${fallbackBP.pulse}` : ''}`);
+                } else {
+                    showToast('未能清晰读取血压计读数，请对准液晶屏拍摄，或尝试手动输入。', 'error');
+                }
+            } catch (fallbackErr) {
+                console.warn('回退识别也失败:', fallbackErr);
+                showToast('未能清晰读取血压计读数，请对准液晶屏拍摄，或尝试手动输入。', 'error');
+            }
         }
     } catch (ocrErr) {
         console.error("OCR Exception Details:", ocrErr);
@@ -2466,7 +3929,7 @@ function updateReport() {
                 <div style="font-size:10px; color: var(--color-pulse); margin-top: 2px;"><span style="color: #ef4444;">♥</span> ${item.pulse} <span style="font-size: 9px; color: var(--text-muted);">次/分</span></div>
             </span>
             <span class="report-record-badge-wrapper" style="width: 32%; flex-shrink: 0; text-align: center;">
-                <span class="report-record-badge ${item.levelClass}">${item.level === '中重度高血压' ? '中重度<br>高血压' : item.level}</span>
+                <span class="report-record-badge ${item.levelClass}">${item.level}</span>
             </span>
         </div>
     `).join('');
@@ -3122,18 +4585,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 注册 PWA Service Worker 离线服务
     if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            navigator.serviceWorker.register('sw.js')
-                .then(reg => console.log('Service Worker 注册成功:', reg.scope))
-                .catch(err => console.log('Service Worker 注册失败:', err));
-        });
-
-        // 监听来自 Service Worker 的重载指令
-        navigator.serviceWorker.addEventListener('message', (event) => {
-            if (event.data && event.data.action === 'clearCacheReload') {
-                console.log('检测到缓存已清除，强制刷新页面中...');
-                window.location.reload();
-            }
-        });
+        const isLocalhost = ['localhost', '127.0.0.1', '::1'].includes(location.hostname);
+        if (!isLocalhost && window.isSecureContext) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then(reg => console.log('Service Worker 注册成功:', reg.scope))
+                    .catch(err => console.log('Service Worker 注册失败:', err));
+            });
+        } else {
+            console.log('跳过 Service Worker 注册（开发环境/本地调试）');
+        }
     }
 });

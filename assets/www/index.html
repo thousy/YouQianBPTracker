@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>YouQian血压助手 - 您的健康记录专家</title>
     <!-- Web App 属性 -->
+    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#f3f4f6">
     <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="app_icon.png">
     
     <!-- 引入高质感字体 -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -31,7 +33,7 @@
     <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     
     <!-- Tesseract.js (纯前端 OCR 库) -->
-    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script src="tesseract.min.js"></script>
     
     
     <!-- 主样式表 -->
@@ -408,7 +410,7 @@
                         <span class="settings-item-icon" style="background: rgba(99,102,241,0.12); color: var(--primary);"><i class="fa-solid fa-heart-pulse"></i></span>
                         <div class="settings-item-info">
                             <div class="settings-item-label">YouQian 血压助手</div>
-                            <div class="settings-item-desc">Version 1.6 · 本地数据 · 隐私保护</div>
+                            <div class="settings-item-desc">Version 1.7 · 本地数据 · 隐私保护</div>
                         </div>
                     </div>
                 </div>
@@ -516,8 +518,11 @@
     </div>
 
     <!-- Cordova 核心支持 (打包时由Cordova自动生成并注入，Web端加载会报404可忽略) -->
-    <script src="cordova.js"></script>
+    <!-- ONNXRuntime-Web 纯前端离线推理引擎 -->
+    <script src="ort.min.js"></script>
+    <!-- YOLOv8 断码屏目标检测模块 -->
+    <script src="src/yolo_detector.js"></script>
     <!-- 主逻辑脚本 -->
-    <script src="app.js?v=24"></script>
+    <script src="app.js?v=43"></script>
 </body>
 </html>
