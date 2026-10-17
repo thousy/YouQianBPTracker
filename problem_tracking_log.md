@@ -772,6 +772,37 @@
 * **状态**：[x] 已完全解决并重新构建交付 V1.7.4 安装包
 * **修复日期**：2026-10-17
 
+---
+
+## 14. 工程打包产物统一输出与归档维护规范 (Release_APK/)
+
+### 需求背景
+* 规范工程架构与构建输出流程，应 MoMo 要求，将所有后续构建生成的正式 APK 安装包统一输出并收纳至 `Release_APK/` 独立目录中，保持项目根目录整洁，避免不同版本安装包与源码文件混杂。
+
+### 变更与执行细节
+1. **构建脚本路径重构 ([build_apk.ps1](file:///d:/AI_Project/xueya/build_apk.ps1))**：
+   * 自动检测并创建目标归档目录 `$releaseDir = Join-Path $sourceDir "Release_APK"`；
+   * 将构建完成后的正式 APK 输出路径统一指向 `$releaseDir\YouQian血压助手_V*.apk`，以后打包执行全自动收纳归档。
+2. **Git 忽略与白名单规则完善 ([.gitignore](file:///d:/AI_Project/xueya/.gitignore))**：
+   * 设定精准白名单放行规则：
+     ```gitignore
+     Release_APK/*.apk
+     !/Release_APK/YouQian*V1.7*.apk
+     !/Release_APK/YouQian*V1.8*.apk
+     !/Release_APK/YouQian*V1.9*.apk
+     !/Release_APK/YouQian*V2.*.apk
+     *.apk
+     ```
+   * 严格过滤根目录及外部构建临时 apk，放行 `Release_APK/` 目录下的正式发布安装包。
+3. **现有安装包平滑迁移**：
+   * 将根目录现存的 V1.7.2、V1.7.3、V1.7.4 正式版安装包整体迁移至 `Release_APK/` 目录下；
+   * 经 Git 校验，迁移后的版本在 `Release_APK/` 中保持完好受版本控制，根目录彻底恢复纯净。
+
+### 状态
+* **状态**：[x] 已完成改造并同步至 GitHub 远端
+* **维护日期**：2026-10-17
+
+
 
 
 

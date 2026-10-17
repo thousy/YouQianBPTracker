@@ -375,9 +375,13 @@ Write-Host "`n[6/6] Compiling APK package..." -ForegroundColor Yellow
 & npx cordova build android --device
 
 $apkPath = $buildDir + "\YouQianBPTracker\platforms\android\app\build\outputs\apk\debug\app-debug.apk"
+$releaseDir = Join-Path $sourceDir "Release_APK"
+if (-not (Test-Path $releaseDir)) {
+    New-Item -ItemType Directory -Path $releaseDir -Force | Out-Null
+}
 $appName = "$([char]0x8840)$([char]0x538b)$([char]0x52a9)$([char]0x624b)"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-$targetApkName = $sourceDir + "\YouQian" + $appName + "_V1.7.4_" + $timestamp + ".apk"
+$targetApkName = Join-Path $releaseDir ("YouQian" + $appName + "_V1.7.4_" + $timestamp + ".apk")
 
 if (Test-Path $apkPath) {
     # 用 cmd copy 替代 Copy-Item，能完美兼容中文字符路径
