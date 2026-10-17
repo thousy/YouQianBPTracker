@@ -410,7 +410,7 @@
                         <span class="settings-item-icon" style="background: rgba(99,102,241,0.12); color: var(--primary);"><i class="fa-solid fa-heart-pulse"></i></span>
                         <div class="settings-item-info">
                             <div class="settings-item-label">YouQian 血压助手</div>
-                            <div class="settings-item-desc">Version 1.7.3 · 本地数据 · 隐私保护</div>
+                            <div class="settings-item-desc">Version 1.7.4 · 本地数据 · 隐私保护</div>
                         </div>
                     </div>
                 </div>
@@ -473,42 +473,42 @@
 
         <!-- OCR 智能识别图片来源选择与引导弹窗 -->
         <div id="ocrCameraModal" class="modal-backdrop">
-            <div class="modal-card glass-card camera-scanner-card" style="max-width: 380px; width: 90%; padding: 24px; display: flex; flex-direction: column; align-items: center; border-radius: 20px;">
-                <div class="scanner-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; width: 100%;">
-                    <h3 class="modal-title" style="font-size: 17px; margin-bottom: 0; font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
+            <div class="modal-card glass-card camera-scanner-card" style="max-width: 360px; width: 92%; padding: 20px 18px; display: flex; flex-direction: column; align-items: center; border-radius: 20px; box-sizing: border-box; margin: auto;">
+                <div class="scanner-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; width: 100%;">
+                    <h3 class="modal-title" style="font-size: 16px; margin-bottom: 0; font-family: 'Outfit', sans-serif; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 8px;">
                         <i class="fa-solid fa-wand-magic-sparkles" style="color: var(--primary);"></i> AI 血压计读数识别
                     </h3>
-                    <button type="button" id="closeScannerBtn" style="width: 32px; height: 32px; display: flex; justify-content: center; align-items: center; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); border-radius: 50%; color: var(--text-muted); cursor: pointer; transition: all 0.2s ease;">
+                    <button type="button" id="closeScannerBtn" style="width: 30px; height: 30px; display: flex; justify-content: center; align-items: center; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-border); border-radius: 50%; color: var(--text-muted); cursor: pointer; transition: all 0.2s ease;">
                         <i class="fa-solid fa-xmark"></i>
                     </button>
                 </div>
                 
                 <!-- 拍照说明图示与提示 -->
-                <div class="ocr-tips-container" style="width: 100%; padding: 16px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--glass-border); border-radius: 12px; margin-bottom: 24px; text-align: left;">
-                    <div style="display: flex; justify-content: center; gap: 16px; margin-bottom: 16px;">
-                        <div class="fa-stack fa-lg" style="font-size: 20px; color: var(--primary);">
+                <div class="ocr-tips-container" style="width: 100%; padding: 12px 14px; background: rgba(255, 255, 255, 0.02); border: 1px solid var(--glass-border); border-radius: 12px; margin-bottom: 16px; text-align: left; box-sizing: border-box;">
+                    <div style="display: flex; justify-content: center; gap: 16px; margin-bottom: 10px;">
+                        <div class="fa-stack fa-lg" style="font-size: 18px; color: var(--primary);">
                             <i class="fa-solid fa-square fa-stack-2x" style="opacity: 0.1;"></i>
                             <i class="fa-solid fa-gauge-high fa-stack-1x"></i>
                         </div>
                         <div style="display: flex; align-items: center; color: var(--text-muted);"><i class="fa-solid fa-arrow-right-arrow-left"></i></div>
-                        <div class="fa-stack fa-lg" style="font-size: 20px; color: var(--secondary);">
+                        <div class="fa-stack fa-lg" style="font-size: 18px; color: var(--secondary);">
                             <i class="fa-solid fa-square fa-stack-2x" style="opacity: 0.1;"></i>
                             <i class="fa-solid fa-camera fa-stack-1x"></i>
                         </div>
                     </div>
-                    <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); line-height: 1.6;">
-                        <li style="margin-bottom: 6px;"><strong style="color: var(--text-main);">对齐拍摄</strong>：请将血压计屏幕水平居中放入镜头。</li>
-                        <li style="margin-bottom: 6px;"><strong style="color: var(--text-main);">避免反光</strong>：避免强光直射屏幕，否则数字可能缺损。</li>
+                    <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: var(--text-muted); line-height: 1.55;">
+                        <li style="margin-bottom: 4px;"><strong style="color: var(--text-main);">对齐拍摄</strong>：请将血压计屏幕水平居中放入镜头。</li>
+                        <li style="margin-bottom: 4px;"><strong style="color: var(--text-main);">避免反光</strong>：避免强光直射屏幕，否则数字可能缺损。</li>
                         <li><strong style="color: var(--text-main);">清晰对焦</strong>：手持平稳，待相机自动对焦清晰后再行拍摄。</li>
                     </ul>
                 </div>
                 
                 <!-- 操作按钮 -->
-                <div class="scanner-actions" style="display: flex; flex-direction: column; width: 100%; gap: 12px;">
-                    <button type="button" id="captureFrameBtn" class="btn-primary" style="margin-top: 0; height: 48px; font-size: 14px; border-radius: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);">
+                <div class="scanner-actions" style="display: flex; flex-direction: column; width: 100%; gap: 10px;">
+                    <button type="button" id="captureFrameBtn" class="btn-primary" style="margin-top: 0; height: 46px; font-size: 14px; border-radius: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.25);">
                         <i class="fa-solid fa-camera" style="font-size: 15px;"></i> 立即拍照识别
                     </button>
-                    <button type="button" id="scannerUploadBtn" class="btn-secondary" style="height: 48px; font-size: 14px; border-radius: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <button type="button" id="scannerUploadBtn" class="btn-secondary" style="height: 46px; font-size: 14px; border-radius: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px;">
                         <i class="fa-solid fa-images" style="font-size: 15px;"></i> 从相册选择照片
                     </button>
                 </div>

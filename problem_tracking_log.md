@@ -735,6 +735,44 @@
 * **状态**：[x] 已完全解决并重新构建交付 V1.7.3 安装包
 * **修复日期**：2026-10-07
 
+---
+
+## 13. 修复点击拍照识别时弹窗不居中且“立即拍照”按钮沉底截断问题
+
+### 问题描述
+* MoMo 在真机运行应用时反馈并截屏：点击“拍照识别”时，弹出的“AI 血压计读数识别”弹窗**没有在屏幕居中显示**，而是整体沉到了屏幕底端，导致最核心的**“立即拍照识别”按钮掉出屏幕可视区域下方（仅露出顶边缘一丝蓝线），“从相册选择照片”按钮完全被截断不可见**。
+
+### 根源分析
+1. **`.modal-backdrop` 错误使用绝对定位 (`position: absolute`)**：
+   * 弹窗蒙层样式为 `position: absolute; height: 100%;`；
+   * 弹窗外层父容器 `.app-container` 包含了主界面的统计看板、输入表单、历史记录等全部组件，总高度动态撑开达 **1500px ~ 1800px**；
+   * 当使用绝对定位时，Flex 垂直居中 `align-items: center` 将弹窗居中到了整个长页面的纵向中点（**Y ≈ 800px~900px** 处）；
+   * 而用户手机屏幕当前视口仅在 0 ~ 750px，导致弹窗主体掉落出可视区域下方，核心按钮沉底不可见。
+2. **缺乏动态视口限制与内联边距略大**：
+   * 原弹窗内联样式设置了较大的外边距与内边距，在部分屏幕较紧凑的机型上缺乏针对视口高度（`100dvh`）的自适应约束。
+
+### 修复方案
+1. **重构 `.modal-backdrop` 为 `position: fixed` 全局视口绝对居中**：
+   * 将定位升级为 `position: fixed; top: 0; left: 0; right: 0; bottom: 0; width: 100vw; height: 100dvh; z-index: 2500;`；
+   * 彻底摆脱父容器长页面高度的干扰，直接锁定手机当前屏幕视口正中央，任何滚动位置打开均保持居中；
+2. **弹窗卡片尺寸与排版精致紧凑优化**：
+   * `.modal-card` 注入 `max-height: calc(100dvh - 32px); overflow-y: auto; margin: auto;` 双保险；
+   * 微调 `camera-scanner-card` 内边距（`padding: 20px 18px`）、标题与说明间距（`margin-bottom: 14px/16px`）及按钮高度（`46px`）；
+   * 确保“立即拍照识别”与“从相册选择照片”两个醒目大按钮在任何长宽比手机上均端正居中、完整呈现、轻松可触；
+3. **版本升级与多端同步**：
+   - 同步修改 [styles.css](file:///d:/AI_Project/xueya/styles.css) 与 [assets/www/styles.css](file:///d:/AI_Project/xueya/assets/www/styles.css)；
+   - 优化 [index.html](file:///d:/AI_Project/xueya/index.html) 与 [assets/www/index.html](file:///d:/AI_Project/xueya/assets/www/index.html)；
+   - 升级版本至 **V1.7.4**（内部 `versionCode="30704"`），支持真机一键无缝覆盖升级并完整保留历史数据。
+
+### 验证与产物
+* **自动化回归**：[tests/verify_pure_app.js](file:///d:/AI_Project/xueya/tests/verify_pure_app.js) 8 大核心实测用例 100% 满分通过，零回归退化；
+* **正式编译安装包**：[YouQian血压助手_V1.7.4_20261017_2252.apk](file:///d:/AI_Project/xueya/YouQian血压助手_V1.7.4_20261017_2252.apk)（41.57 MB）。
+
+### 状态
+* **状态**：[x] 已完全解决并重新构建交付 V1.7.4 安装包
+* **修复日期**：2026-10-17
+
+
 
 
 

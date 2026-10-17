@@ -849,22 +849,29 @@ input:focus {
    11. 自定义确认模态弹窗样式 (Custom Confirm Modal)
    ========================================== */
 .modal-backdrop {
-    position: absolute;
+    position: fixed;
     top: 0;
     left: 0;
-    width: 100%;
-    height: 100%;
-    background: rgba(0, 0, 0, 0.6);
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    background: rgba(0, 0, 0, 0.65);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
     display: flex;
     align-items: center;
     justify-content: center;
-    z-index: 2000;
+    z-index: 2500;
     opacity: 0;
     pointer-events: none;
     transition: var(--transition-smooth);
-    border-radius: var(--card-radius);
+    border-radius: 0;
+    padding: calc(16px + var(--safe-top)) 16px calc(16px + var(--safe-bottom)) 16px;
+    box-sizing: border-box;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .modal-backdrop.show {
@@ -873,16 +880,21 @@ input:focus {
 }
 
 .modal-card {
-    width: 85%;
-    max-width: 320px;
+    width: 90%;
+    max-width: 360px;
+    max-height: calc(100vh - 32px);
+    max-height: calc(100dvh - 32px);
     background: var(--glass-bg);
     border: 1px solid var(--glass-border);
     border-radius: var(--card-radius);
-    padding: 24px;
+    padding: 22px 20px;
     box-shadow: 0 15px 35px rgba(0, 0, 0, 0.4);
     text-align: center;
     transform: scale(0.9);
     transition: var(--transition-smooth);
+    box-sizing: border-box;
+    overflow-y: auto;
+    margin: auto;
 }
 
 .modal-backdrop.show .modal-card {
