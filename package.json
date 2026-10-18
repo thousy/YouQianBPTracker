@@ -1,6 +1,6 @@
 {
   "name": "youqian-bp-tracker",
-  "version": "1.7.4",
+  "version": "1.7.5",
   "description": "YouQian Blood Pressure Tracker",
   "private": true,
   "dependencies": {

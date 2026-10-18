@@ -16,12 +16,9 @@ sub_*.jpg
 debug_*
 jimp_*
 APK/
-Release_APK/*.apk
-!/Release_APK/YouQian*V1.7*.apk
-!/Release_APK/YouQian*V1.8*.apk
-!/Release_APK/YouQian*V1.9*.apk
-!/Release_APK/YouQian*V2.*.apk
 *.apk
+!/Release_APK/YouQian*V1.7.4*.apk
+!/Release_APK/YouQian*V1.7.5*.apk
 *.xlsx
 *.pdf
 

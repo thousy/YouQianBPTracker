@@ -289,7 +289,7 @@ $newConfig = $configXml | ForEach-Object {
 '@
         $extraConfig + "`n" + $_
     } elseif ($_ -match '<widget') {
-        $temp = $_ -replace 'version="1.0.0"', 'version="1.7.4" android-versionCode="30704"'
+        $temp = $_ -replace 'version="1.0.0"', 'version="1.7.5" android-versionCode="30705"'
         $temp -replace '<widget', '<widget xmlns:android="http://schemas.android.com/apk/res/android"'
     } else {
         $_
@@ -381,7 +381,7 @@ if (-not (Test-Path $releaseDir)) {
 }
 $appName = "$([char]0x8840)$([char]0x538b)$([char]0x52a9)$([char]0x624b)"
 $timestamp = Get-Date -Format "yyyyMMdd_HHmm"
-$targetApkName = Join-Path $releaseDir ("YouQian" + $appName + "_V1.7.4_" + $timestamp + ".apk")
+$targetApkName = Join-Path $releaseDir ("YouQian" + $appName + "_V1.7.5_" + $timestamp + ".apk")
 
 if (Test-Path $apkPath) {
     # 用 cmd copy 替代 Copy-Item，能完美兼容中文字符路径
